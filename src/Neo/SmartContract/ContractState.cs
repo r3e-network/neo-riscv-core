@@ -36,6 +36,12 @@ namespace Neo.SmartContract
         public ushort UpdateCounter;
 
         /// <summary>
+        /// The execution backend type for this contract.
+        /// NeoVM (0) for standard NeoVM bytecode, RiscV (1) for PolkaVM binaries.
+        /// </summary>
+        public ContractType Type;
+
+        /// <summary>
         /// The hash of the contract.
         /// </summary>
         public required UInt160 Hash;
@@ -60,6 +66,7 @@ namespace Neo.SmartContract
             var from = (ContractState)replica;
             Id = from.Id;
             UpdateCounter = from.UpdateCounter;
+            Type = from.Type;
             Hash = from.Hash;
             Nef = from.Nef;
             Manifest = from.Manifest;
@@ -78,6 +85,8 @@ namespace Neo.SmartContract
             Hash = new UInt160(array[2].GetSpan());
             Nef = NefFile.Parse(((ByteString)array[3]).Memory, verify);
             Manifest = array[4].ToInteroperable<ContractManifest>();
+            // Backward compatible: Type field defaults to NeoVM if not present
+            Type = array.Count > 5 ? (ContractType)(byte)array[5].GetInteger() : ContractType.NeoVM;
         }
 
         /// <summary>
@@ -101,6 +110,7 @@ namespace Neo.SmartContract
             {
                 ["id"] = Id,
                 ["updatecounter"] = UpdateCounter,
+                ["type"] = Type.ToString(),
                 ["hash"] = Hash.ToString(),
                 ["nef"] = Nef.ToJson(),
                 ["manifest"] = Manifest.ToJson()
@@ -109,7 +119,7 @@ namespace Neo.SmartContract
 
         public StackItem ToStackItem(IReferenceCounter? referenceCounter)
         {
-            return new Array(referenceCounter, [Id, (int)UpdateCounter, Hash.ToArray(), Nef.ToArray(), Manifest.ToStackItem(referenceCounter)]);
+            return new Array(referenceCounter, [Id, (int)UpdateCounter, Hash.ToArray(), Nef.ToArray(), Manifest.ToStackItem(referenceCounter), (int)(byte)Type]);
         }
     }
 }

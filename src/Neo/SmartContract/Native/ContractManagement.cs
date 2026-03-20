@@ -130,6 +130,19 @@ namespace Neo.SmartContract.Native
         }
 
         /// <summary>
+        /// Checks if a script is a PolkaVM RISC-V binary (starts with PVM\0 magic).
+        /// </summary>
+        private static bool IsRiscVBinary(ReadOnlyMemory<byte> script)
+        {
+            var span = script.Span;
+            return span.Length > 4
+                && span[0] == 0x50  // 'P'
+                && span[1] == 0x56  // 'V'
+                && span[2] == 0x4D  // 'M'
+                && span[3] == 0x00; // '\0'
+        }
+
+        /// <summary>
         /// Sets the minimum deployment fee for deploying a contract. Only committee members can call this method.
         /// </summary>
         /// <param name="engine">The engine used to write data.</param>
@@ -287,6 +300,7 @@ namespace Neo.SmartContract.Native
             {
                 Id = GetNextAvailableId(engine.SnapshotCache),
                 UpdateCounter = 0,
+                Type = IsRiscVBinary(nef.Script) ? ContractType.RiscV : ContractType.NeoVM,
                 Nef = nef,
                 Hash = hash,
                 Manifest = parsedManifest
@@ -354,6 +368,8 @@ namespace Neo.SmartContract.Native
 
                 // Update nef
                 contract.Nef = nefFile.AsSerializable<NefFile>();
+                // Re-detect contract type from new NEF
+                contract.Type = IsRiscVBinary(contract.Nef.Script) ? ContractType.RiscV : ContractType.NeoVM;
             }
             // Clean whitelist (emit event if exists with the old manifest information)
             Policy.CleanWhitelist(engine, contract);
