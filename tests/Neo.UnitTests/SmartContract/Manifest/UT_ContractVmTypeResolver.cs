@@ -44,7 +44,7 @@ namespace Neo.UnitTests.SmartContract.Manifest
 
             Assert.AreEqual(
                 ContractType.NeoVM,
-                ContractVmTypeResolver.Resolve(manifest, new byte[] { 0x50, 0x56, 0x4D, 0x00 }));
+                ContractVmTypeResolver.Resolve(manifest, new byte[] { (byte)VM.OpCode.PUSH1, (byte)VM.OpCode.RET }));
         }
 
         [TestMethod]
