@@ -13,6 +13,7 @@ using Akka.Actor;
 using Neo.Ledger;
 using Neo.Persistence;
 using Neo.Persistence.Providers;
+using System;
 using System.Collections.Generic;
 
 #nullable enable
@@ -21,6 +22,8 @@ namespace Neo.UnitTests
 {
     public static class TestBlockchain
     {
+        private static readonly Lazy<TestNeoSystem> SharedSnapshotSystem = new(() => new TestNeoSystem(TestProtocolSettings.Default));
+
         private class TestStoreProvider : IStoreProvider
         {
             public readonly Dictionary<string, MemoryStore> Stores = [];
@@ -64,7 +67,13 @@ namespace Neo.UnitTests
         public static readonly UInt160[]? DefaultExtensibleWitnessWhiteList;
 
         public static TestNeoSystem GetSystem() => new(TestProtocolSettings.Default);
-        public static StoreCache GetTestSnapshotCache() => GetSystem().GetSnapshotCache();
+
+        public static StoreCache GetTestSnapshotCache()
+        {
+            var system = SharedSnapshotSystem.Value;
+            system.ResetStore();
+            return system.GetSnapshotCache();
+        }
     }
 }
 

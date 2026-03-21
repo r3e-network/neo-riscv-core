@@ -16,6 +16,7 @@ using Neo.Network.P2P.Payloads;
 using Neo.Persistence;
 using Neo.SmartContract.Manifest;
 using Neo.SmartContract.Native;
+using Neo.SmartContract.RiscV;
 using Neo.VM;
 using Neo.VM.Types;
 using System;
@@ -230,22 +231,30 @@ namespace Neo.SmartContract
             }
             else
             {
-                var persistingIndex = persistingBlock?.Index ?? NativeContract.Ledger.CurrentIndex(snapshotCache);
-
-                if (settings == null || !settings.IsHardforkEnabled(Hardfork.HF_Faun, persistingIndex))
+                try
                 {
-                    // The values doesn't have the decimals stored
-                    _execFeeFactor = NativeContract.Policy.GetExecFeeFactor(this) * FeeFactor;
-                }
-                else
-                {
-                    // The values have the decimals stored starting from OnPersist of Faun's block.
-                    _execFeeFactor = NativeContract.Policy.GetExecPicoFeeFactor(this);
-                    if (trigger == TriggerType.OnPersist && persistingIndex > 0 && !settings.IsHardforkEnabled(Hardfork.HF_Faun, persistingIndex - 1))
-                        _execFeeFactor *= FeeFactor;
-                }
+                    var persistingIndex = persistingBlock?.Index ?? ResolveCurrentIndex(snapshotCache);
 
-                StoragePrice = NativeContract.Policy.GetStoragePrice(snapshotCache);
+                    if (settings == null || !settings.IsHardforkEnabled(Hardfork.HF_Faun, persistingIndex))
+                    {
+                        // The values doesn't have the decimals stored
+                        _execFeeFactor = NativeContract.Policy.GetExecFeeFactor(this) * FeeFactor;
+                    }
+                    else
+                    {
+                        // The values have the decimals stored starting from OnPersist of Faun's block.
+                        _execFeeFactor = NativeContract.Policy.GetExecPicoFeeFactor(this);
+                        if (trigger == TriggerType.OnPersist && persistingIndex > 0 && !settings.IsHardforkEnabled(Hardfork.HF_Faun, persistingIndex - 1))
+                            _execFeeFactor *= FeeFactor;
+                    }
+
+                    StoragePrice = NativeContract.Policy.GetStoragePrice(snapshotCache);
+                }
+                catch (KeyNotFoundException)
+                {
+                    _execFeeFactor = PolicyContract.DefaultExecFeeFactor * FeeFactor;
+                    StoragePrice = PolicyContract.DefaultStoragePrice;
+                }
             }
 
             if (persistingBlock is not null)
@@ -415,6 +424,9 @@ namespace Neo.SmartContract
 
         internal ContractTask CallFromNativeContractAsync(UInt160 callingScriptHash, UInt160 hash, string method, params StackItem[] args)
         {
+            if (NativeContract.GetContract(hash) is NativeContract nativeContract)
+                return InvokeNativeContractFromNative(callingScriptHash, nativeContract, method, args);
+
             var contextNew = CallContractInternal(hash, method, CallFlags.All, false, args);
             var state = contextNew.GetState<ExecutionContextState>();
             state.NativeCallingScriptHash = callingScriptHash;
@@ -425,12 +437,138 @@ namespace Neo.SmartContract
 
         internal ContractTask<T> CallFromNativeContractAsync<T>(UInt160 callingScriptHash, UInt160 hash, string method, params StackItem[] args)
         {
+            if (NativeContract.GetContract(hash) is NativeContract nativeContract)
+                return InvokeNativeContractFromNative<T>(callingScriptHash, nativeContract, method, args);
+
             var contextNew = CallContractInternal(hash, method, CallFlags.All, true, args);
             var state = contextNew.GetState<ExecutionContextState>();
             state.NativeCallingScriptHash = callingScriptHash;
             ContractTask<T> task = new();
             contractTasks.Add(contextNew, task.GetAwaiter());
             return task;
+        }
+
+        internal TResult ExecuteInNativeContractContext<TResult>(UInt160 currentScriptHash, UInt160? callingScriptHash, ContractState? contractState, CallFlags callFlags, Func<TResult> action)
+        {
+            var context = CurrentContext ?? throw new InvalidOperationException("No current execution context is available.");
+            var state = context.GetState<ExecutionContextState>();
+            var previousScriptHash = state.ScriptHash;
+            var previousCallingScriptHash = state.NativeCallingScriptHash;
+            var previousContract = state.Contract;
+            var previousCallFlags = state.CallFlags;
+
+            state.ScriptHash = currentScriptHash;
+            state.NativeCallingScriptHash = callingScriptHash;
+            state.Contract = contractState;
+            state.CallFlags = callFlags;
+
+            try
+            {
+                return action();
+            }
+            finally
+            {
+                state.ScriptHash = previousScriptHash;
+                state.NativeCallingScriptHash = previousCallingScriptHash;
+                state.Contract = previousContract;
+                state.CallFlags = previousCallFlags;
+            }
+        }
+
+        private ContractTask InvokeNativeContractFromNative(UInt160 callingScriptHash, NativeContract nativeContract, string methodName, StackItem[] args)
+        {
+            var method = ResolveNativeContractMethod(nativeContract, methodName, args.Length);
+            var effectiveFlags = ResolveNativeContractCallFlags(method);
+            var contractState = ResolveNativeContractState(nativeContract);
+
+            ChargeNativeContractCall(nativeContract, method);
+
+            var parameters = new List<object?>();
+            if (method.NeedApplicationEngine) parameters.Add(this);
+            if (method.NeedSnapshot) parameters.Add(SnapshotCache);
+            for (var index = 0; index < method.Parameters.Length; index++)
+                parameters.Add(Convert(args[index], method.Parameters[index]));
+
+            var result = ExecuteInNativeContractContext(nativeContract.Hash, callingScriptHash, contractState, effectiveFlags,
+                () => method.Handler.Invoke(nativeContract, parameters.ToArray()));
+
+            return result switch
+            {
+                ContractTask task => task,
+                _ => ContractTask.CompletedTask,
+            };
+        }
+
+        private ContractTask<T> InvokeNativeContractFromNative<T>(UInt160 callingScriptHash, NativeContract nativeContract, string methodName, StackItem[] args)
+        {
+            var method = ResolveNativeContractMethod(nativeContract, methodName, args.Length);
+            var effectiveFlags = ResolveNativeContractCallFlags(method);
+            var contractState = ResolveNativeContractState(nativeContract);
+
+            ChargeNativeContractCall(nativeContract, method);
+
+            var parameters = new List<object?>();
+            if (method.NeedApplicationEngine) parameters.Add(this);
+            if (method.NeedSnapshot) parameters.Add(SnapshotCache);
+            for (var index = 0; index < method.Parameters.Length; index++)
+                parameters.Add(Convert(args[index], method.Parameters[index]));
+
+            var result = ExecuteInNativeContractContext(nativeContract.Hash, callingScriptHash, contractState, effectiveFlags,
+                () => method.Handler.Invoke(nativeContract, parameters.ToArray()));
+
+            if (result is ContractTask<T> task)
+                return task;
+
+            var completed = new ContractTask<T>();
+            ((ContractTaskAwaiter<T>)completed.GetAwaiter()).SetResult((T)result!);
+            return completed;
+        }
+
+        private Native.ContractMethodMetadata ResolveNativeContractMethod(NativeContract nativeContract, string methodName, int argumentCount)
+        {
+            var method = nativeContract
+                .GetContractMethods(this)
+                .Values
+                .FirstOrDefault(candidate => candidate.Descriptor.Name == methodName && candidate.Parameters.Length == argumentCount)
+                ?? throw new InvalidOperationException($"Method \"{methodName}\" with {argumentCount} parameter(s) doesn't exist in the native contract {nativeContract.Hash}.");
+
+            if (method.ActiveIn is not null && !IsHardforkEnabled(method.ActiveIn.Value))
+                throw new InvalidOperationException($"Cannot call this method before hardfork {method.ActiveIn}.");
+            if (method.DeprecatedIn is not null && IsHardforkEnabled(method.DeprecatedIn.Value))
+                throw new InvalidOperationException($"Cannot call this method after hardfork {method.DeprecatedIn}.");
+
+            return method;
+        }
+
+        private CallFlags ResolveNativeContractCallFlags(Native.ContractMethodMetadata method)
+        {
+            var effectiveFlags = CurrentContext!.GetState<ExecutionContextState>().CallFlags;
+            if (method.Descriptor.Safe)
+                effectiveFlags &= ~(CallFlags.WriteStates | CallFlags.AllowNotify);
+            if (!effectiveFlags.HasFlag(method.RequiredCallFlags))
+                throw new InvalidOperationException($"Cannot call this method with the flag {effectiveFlags}.");
+            return effectiveFlags;
+        }
+
+        private ContractState ResolveNativeContractState(NativeContract nativeContract)
+        {
+            return NativeContract.ContractManagement.GetContract(SnapshotCache, nativeContract.Hash)
+                ?? nativeContract.GetContractState(ProtocolSettings, PersistingBlock?.Index ?? NativeContract.Ledger.CurrentIndex(SnapshotCache));
+        }
+
+        private void ChargeNativeContractCall(NativeContract nativeContract, Native.ContractMethodMetadata method)
+        {
+            if (!IsHardforkEnabled(Hardfork.HF_Faun) ||
+                !NativeContract.Policy.IsWhitelistFeeContract(SnapshotCache, nativeContract.Hash, method.Descriptor, out var fixedFee))
+            {
+                AddFee(
+                    (method.CpuFee * ExecFeePicoFactor) +
+                    (method.StorageFee * StoragePrice * FeeFactor));
+            }
+            else
+            {
+                AddFee(fixedFee!.Value * FeeFactor);
+            }
         }
 
         protected override void ContextUnloaded(ExecutionContext context)
@@ -490,15 +628,27 @@ namespace Neo.SmartContract
         /// <returns>The engine instance created.</returns>
         public static ApplicationEngine Create(TriggerType trigger, IVerifiable? container, DataCache snapshot, Block? persistingBlock = null, ProtocolSettings? settings = null, long gas = TestModeGas, IDiagnostic? diagnostic = null)
         {
-            var index = persistingBlock?.Index ?? NativeContract.Ledger.CurrentIndex(snapshot);
+            var index = persistingBlock?.Index ?? ResolveCurrentIndex(snapshot);
             settings ??= ProtocolSettings.Default;
             // Adjust jump table according persistingBlock
             var jumpTable = settings.IsHardforkEnabled(Hardfork.HF_Echidna, index) ? DefaultJumpTable : NotEchidnaJumpTable;
-            var engine = Provider?.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable)
-                  ?? new ApplicationEngine(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
+            var provider = Provider ?? RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
+            var engine = provider.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
 
             InstanceHandler?.Invoke(engine);
             return engine;
+        }
+
+        private static uint ResolveCurrentIndex(IReadOnlyStore snapshot)
+        {
+            try
+            {
+                return NativeContract.Ledger.CurrentIndex(snapshot);
+            }
+            catch (KeyNotFoundException)
+            {
+                return 0;
+            }
         }
 
         /// <summary>
@@ -836,6 +986,14 @@ namespace Neo.SmartContract
         {
             states ??= new Dictionary<Type, object>();
             states[typeof(T)] = state;
+        }
+
+        internal void IncrementInvocationCounter(UInt160 hash)
+        {
+            if (invocationCounter.TryGetValue(hash, out var counter))
+                invocationCounter[hash] = counter + 1;
+            else
+                invocationCounter[hash] = 1;
         }
 
         public bool IsHardforkEnabled(Hardfork hardfork)

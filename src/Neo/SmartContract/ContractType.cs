@@ -21,7 +21,8 @@ namespace Neo.SmartContract
 
         /// <summary>
         /// PolkaVM RISC-V binary executed directly on PolkaVM.
-        /// The NEF script starts with the PVM\0 magic bytes.
+        /// Contracts may opt in explicitly through manifest extra metadata, or
+        /// fall back to the existing PVM\0 script magic for backward compatibility.
         /// </summary>
         RiscV = 1,
     }

@@ -132,16 +132,6 @@ namespace Neo.SmartContract.Native
         /// <summary>
         /// Checks if a script is a PolkaVM RISC-V binary (starts with PVM\0 magic).
         /// </summary>
-        private static bool IsRiscVBinary(ReadOnlyMemory<byte> script)
-        {
-            var span = script.Span;
-            return span.Length > 4
-                && span[0] == 0x50  // 'P'
-                && span[1] == 0x56  // 'V'
-                && span[2] == 0x4D  // 'M'
-                && span[3] == 0x00; // '\0'
-        }
-
         /// <summary>
         /// Sets the minimum deployment fee for deploying a contract. Only committee members can call this method.
         /// </summary>
@@ -287,7 +277,11 @@ namespace Neo.SmartContract.Native
 
             NefFile nef = nefFile.AsSerializable<NefFile>();
             ContractManifest parsedManifest = ContractManifest.Parse(manifest);
-            Helper.Check(new Script(nef.Script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), parsedManifest.Abi);
+            var contractType = ContractVmTypeResolver.Resolve(parsedManifest, nef.Script);
+            if (contractType == ContractType.NeoVM)
+            {
+                Helper.Check(new Script(nef.Script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), parsedManifest.Abi);
+            }
             UInt160 hash = Helper.GetContractHash(tx.Sender, nef.CheckSum, parsedManifest.Name);
 
             if (Policy.IsBlocked(engine.SnapshotCache, hash))
@@ -300,7 +294,7 @@ namespace Neo.SmartContract.Native
             {
                 Id = GetNextAvailableId(engine.SnapshotCache),
                 UpdateCounter = 0,
-                Type = IsRiscVBinary(nef.Script) ? ContractType.RiscV : ContractType.NeoVM,
+                Type = contractType,
                 Nef = nef,
                 Hash = hash,
                 Manifest = parsedManifest
@@ -361,15 +355,15 @@ namespace Neo.SmartContract.Native
             if (contract.UpdateCounter == ushort.MaxValue)
                 throw new InvalidOperationException($"The contract reached the maximum number of updates.");
 
+            var candidateNef = contract.Nef;
+            var candidateManifest = contract.Manifest;
+
             if (nefFile != null)
             {
                 if (nefFile.Length == 0)
                     throw new ArgumentException($"NEF file length cannot be zero.");
 
-                // Update nef
-                contract.Nef = nefFile.AsSerializable<NefFile>();
-                // Re-detect contract type from new NEF
-                contract.Type = IsRiscVBinary(contract.Nef.Script) ? ContractType.RiscV : ContractType.NeoVM;
+                candidateNef = nefFile.AsSerializable<NefFile>();
             }
             // Clean whitelist (emit event if exists with the old manifest information)
             Policy.CleanWhitelist(engine, contract);
@@ -383,9 +377,18 @@ namespace Neo.SmartContract.Native
                     throw new InvalidOperationException("The name of the contract can't be changed.");
                 if (!manifestNew.IsValid(engine.Limits, contract.Hash))
                     throw new InvalidOperationException($"Invalid Manifest: {contract.Hash}");
-                contract.Manifest = manifestNew;
+                candidateManifest = manifestNew;
             }
-            Helper.Check(new Script(contract.Nef.Script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), contract.Manifest.Abi);
+
+            var candidateType = ContractVmTypeResolver.Resolve(candidateManifest, candidateNef.Script);
+            if (candidateType == ContractType.NeoVM)
+            {
+                Helper.Check(new Script(candidateNef.Script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), candidateManifest.Abi);
+            }
+
+            contract.Nef = candidateNef;
+            contract.Manifest = candidateManifest;
+            contract.Type = candidateType;
             // Increase update counter
             contract.UpdateCounter++;
             return OnDeployAsync(engine, contract, data, true);

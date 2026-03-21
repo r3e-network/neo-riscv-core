@@ -35,24 +35,35 @@ namespace Neo.UnitTests.Extensions
         /// <exception cref="Exception"></exception>
         public static ContractState DeployContract(this DataCache snapshot, UInt160 sender, byte[] nefFile, byte[] manifest, long datoshi = 200_00000000)
         {
-            var script = new ScriptBuilder();
-            script.EmitDynamicCall(NativeContract.ContractManagement.Hash, "deploy", nefFile, manifest, null);
-
-            var engine = ApplicationEngine.Create(TriggerType.Application,
-                sender != null ? new Transaction() { Signers = [new() { Account = sender }], Attributes = [], Witnesses = null! } : null,
-                snapshot, settings: TestProtocolSettings.Default, gas: datoshi);
-            engine.LoadScript(script.ToArray());
-
-            if (engine.Execute() != VMState.HALT)
+            try
             {
-                Exception exception = engine.FaultException;
-                while (exception?.InnerException != null) exception = exception.InnerException;
-                throw exception ?? new InvalidOperationException();
-            }
+                var script = new ScriptBuilder();
+                script.EmitDynamicCall(NativeContract.ContractManagement.Hash, "deploy", nefFile, manifest, null);
 
-            var ret = (ContractState)RuntimeHelpers.GetUninitializedObject(typeof(ContractState));
-            ((IInteroperable)ret).FromStackItem(engine.ResultStack.Pop());
-            return ret;
+                var engine = ApplicationEngine.Create(TriggerType.Application,
+                    sender != null ? new Transaction() { Signers = [new() { Account = sender }], Attributes = [], Witnesses = null! } : null,
+                    snapshot, settings: TestProtocolSettings.Default, gas: datoshi);
+                engine.LoadScript(script.ToArray());
+
+                if (engine.Execute() != VMState.HALT)
+                {
+                    Exception exception = engine.FaultException;
+                    while (exception?.InnerException != null) exception = exception.InnerException;
+                    if (exception is FormatException formatException)
+                    {
+                        throw new InvalidOperationException(formatException.Message, formatException);
+                    }
+                    throw exception ?? new InvalidOperationException();
+                }
+
+                var ret = (ContractState)RuntimeHelpers.GetUninitializedObject(typeof(ContractState));
+                ((IInteroperable)ret).FromStackItem(engine.ResultStack.Pop());
+                return ret;
+            }
+            catch (FormatException formatException)
+            {
+                throw new InvalidOperationException(formatException.Message, formatException);
+            }
         }
 
         public static void UpdateContract(this DataCache snapshot, UInt160 callingScriptHash, byte[] nefFile, byte[] manifest)

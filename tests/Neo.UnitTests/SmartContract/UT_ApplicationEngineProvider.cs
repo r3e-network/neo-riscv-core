@@ -14,7 +14,10 @@ using Neo.Extensions;
 using Neo.Network.P2P.Payloads;
 using Neo.Persistence;
 using Neo.SmartContract;
+using Neo.SmartContract.Native;
+using Neo.SmartContract.RiscV;
 using Neo.VM;
+using System;
 using System.Reflection;
 
 namespace Neo.UnitTests.SmartContract
@@ -23,18 +26,23 @@ namespace Neo.UnitTests.SmartContract
     public class UT_ApplicationEngineProvider
     {
         private DataCache _snapshotCache;
+        private string _previousLibraryPath;
 
         [TestInitialize]
         public void TestSetup()
         {
-            _snapshotCache = TestBlockchain.GetTestSnapshotCache();
+            _snapshotCache = TestBlockchain.GetSystem().GetTestSnapshotCache();
             ApplicationEngine.Provider = null;
+            _previousLibraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
+            RiscvApplicationEngineProviderResolver.ResetForTesting();
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
             ApplicationEngine.Provider = null;
+            Environment.SetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable, _previousLibraryPath);
+            RiscvApplicationEngineProviderResolver.ResetForTesting();
         }
 
         [TestMethod]
@@ -51,10 +59,65 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestDefaultAppEngineProvider()
         {
+            Environment.SetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable, null);
+            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            var snapshot = _snapshotCache.CloneCache();
+            Assert.ThrowsExactly<InvalidOperationException>(() => _ = ApplicationEngine.Create(TriggerType.Application,
+                null, snapshot, gas: 0, settings: TestProtocolSettings.Default));
+        }
+
+        [TestMethod]
+        public void TestConfiguredRiscvProviderBecomesDefault()
+        {
+            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
+            if (string.IsNullOrWhiteSpace(libraryPath))
+            {
+                Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
+            }
+
+            RiscvApplicationEngineProviderResolver.ResetForTesting();
             var snapshot = _snapshotCache.CloneCache();
             using var appEngine = ApplicationEngine.Create(TriggerType.Application,
                 null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
-            Assert.IsTrue(appEngine is ApplicationEngine);
+            Assert.IsTrue(appEngine is RiscvApplicationEngine);
+        }
+
+        [TestMethod]
+        public void TestConfiguredRiscvProviderBootstrapsNativeState()
+        {
+            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
+            if (string.IsNullOrWhiteSpace(libraryPath))
+            {
+                Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
+            }
+
+            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            var system = TestBlockchain.GetSystem();
+            var snapshot = system.GetSnapshotCache();
+
+            Assert.IsTrue(NativeContract.Ledger.Initialized(snapshot));
+            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.NEO.Hash));
+            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.GAS.Hash));
+            Assert.AreEqual(system.GenesisBlock.Hash, NativeContract.Ledger.CurrentHash(snapshot));
+        }
+
+        [TestMethod]
+        public void TestExplicitRiscvProviderBootstrapsNativeState()
+        {
+            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
+            if (string.IsNullOrWhiteSpace(libraryPath))
+            {
+                Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
+            }
+
+            ApplicationEngine.Provider = new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath));
+            var system = new TestBlockchain.TestNeoSystem(TestProtocolSettings.Default);
+            var snapshot = system.GetSnapshotCache();
+
+            Assert.IsTrue(NativeContract.Ledger.Initialized(snapshot));
+            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.NEO.Hash));
+            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.GAS.Hash));
+            Assert.AreEqual(system.GenesisBlock.Hash, NativeContract.Ledger.CurrentHash(snapshot));
         }
 
         [TestMethod]

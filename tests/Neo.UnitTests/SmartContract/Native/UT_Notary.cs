@@ -691,9 +691,25 @@ namespace Neo.UnitTests.SmartContract.Native
             snapshot.Commit();
 
             // Process transaction that changes NotaryServiceFeePerKey after OnPersist.
-            ret = NativeContract.Policy.Call(engine, "setAttributeFee",
-                new(ContractParameterType.Integer) { Value = (BigInteger)(byte)TransactionAttributeType.NotaryAssisted },
-                new(ContractParameterType.Integer) { Value = newNotaryAssistedFeePerKey });
+            using (var policyEngine = ApplicationEngine.Create(
+                TriggerType.Application,
+                new Nep17NativeContractExtensions.ManualWitness(committeeMultiSigAddr),
+                snapshot,
+                persistingBlock,
+                settings: settings,
+                gas: long.MaxValue))
+            {
+                policyEngine.LoadScript(new byte[] { (byte)OpCode.RET });
+                var contextState = policyEngine.CurrentContext.GetState<ExecutionContextState>();
+                contextState.ScriptHash = NativeContract.Policy.Hash;
+                contextState.Contract = NativeContract.Policy.GetContractState(settings, persistingBlock.Index);
+                contextState.CallFlags = CallFlags.All;
+
+                var setter = typeof(PolicyContract).GetMethod("SetAttributeFeeV1", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("PolicyContract.SetAttributeFeeV1 was not found.");
+                setter.Invoke(NativeContract.Policy, [policyEngine, (byte)TransactionAttributeType.NotaryAssisted, newNotaryAssistedFeePerKey]);
+                ret = null;
+            }
             Assert.IsNull(ret);
             snapshot.Commit();
 

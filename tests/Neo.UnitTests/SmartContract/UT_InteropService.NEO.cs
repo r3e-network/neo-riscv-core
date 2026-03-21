@@ -12,6 +12,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neo.Cryptography;
 using Neo.Extensions;
+using Neo.Json;
 using Neo.Network.P2P;
 using Neo.SmartContract;
 using Neo.SmartContract.Manifest;
@@ -93,7 +94,7 @@ namespace Neo.UnitTests.SmartContract
             var nefFile = nef.ToArray();
             var manifest = TestUtils.CreateDefaultManifest();
             Assert.ThrowsExactly<InvalidOperationException>(() => _ = snapshotCache.DeployContract(null, nefFile, manifest.ToJson().ToByteArray(false)));
-            Assert.ThrowsExactly<ArgumentException>(() => _ = snapshotCache.DeployContract(UInt160.Zero, nefFile, new byte[ContractManifest.MaxLength + 1]));
+            Assert.ThrowsExactly<ArgumentException>(() => _ = snapshotCache.DeployContract(UInt160.Zero, nefFile, new byte[ContractManifest.MaxLength + 1], 200_00000000));
             Assert.ThrowsExactly<InvalidOperationException>(() => _ = snapshotCache.DeployContract(UInt160.Zero, nefFile, manifest.ToJson().ToByteArray(true), 10000000));
 
             var scriptExceedMaxLength = new NefFile()
@@ -123,6 +124,29 @@ namespace Neo.UnitTests.SmartContract
             snapshotCache.AddContract(state.Hash, state);
 
             Assert.ThrowsExactly<InvalidOperationException>(() => _ = snapshotCache.DeployContract(UInt160.Zero, nefFile, manifest.ToJson().ToByteArray(false)));
+        }
+
+        [TestMethod]
+        public void TestContract_Create_RiscvManifestMarkerSetsContractType()
+        {
+            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
+            var nef = new NefFile()
+            {
+                Script = new byte[] { 0x50, 0x56, 0x4D, 0x00, 0x01 },
+                Source = string.Empty,
+                Compiler = "",
+                Tokens = []
+            };
+            nef.CheckSum = NefFile.ComputeChecksum(nef);
+
+            var manifest = TestUtils.CreateDefaultManifest();
+            manifest.Extra = new JObject
+            {
+                ["vm"] = ContractVmTypeResolver.RiscvPolkaVmMarker
+            };
+
+            var contract = snapshotCache.DeployContract(UInt160.Zero, nef.ToArray(), manifest.ToJson().ToByteArray(false));
+            Assert.AreEqual(ContractType.RiscV, contract.Type);
         }
 
         [TestMethod]
@@ -168,6 +192,32 @@ namespace Neo.UnitTests.SmartContract
             Assert.AreEqual(state.Id, ret.Id);
             Assert.AreEqual(manifest.ToJson().ToString(), ret.Manifest.ToJson().ToString());
             Assert.AreEqual(nef.Script.Span.ToHexString().ToString(), ret.Script.Span.ToHexString());
+        }
+
+        [TestMethod]
+        public void TestContract_Update_RejectsVmMarkerMismatch()
+        {
+            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
+            var nef = new NefFile()
+            {
+                Script = new[] { (byte)OpCode.RET },
+                Source = string.Empty,
+                Compiler = "",
+                Tokens = [],
+            };
+            nef.CheckSum = NefFile.ComputeChecksum(nef);
+
+            var manifest = TestUtils.CreateDefaultManifest();
+            var state = snapshotCache.DeployContract(UInt160.Zero, nef.ToArray(), manifest.ToJson().ToByteArray(false));
+            Assert.AreEqual(ContractType.NeoVM, state.Type);
+
+            manifest.Extra = new JObject
+            {
+                ["vm"] = ContractVmTypeResolver.RiscvPolkaVmMarker
+            };
+
+            Assert.ThrowsExactly<FormatException>(() =>
+                snapshotCache.UpdateContract(state.Hash, nef.ToArray(), manifest.ToJson().ToByteArray(false)));
         }
 
         [TestMethod]

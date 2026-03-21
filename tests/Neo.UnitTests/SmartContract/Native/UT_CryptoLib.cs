@@ -139,7 +139,8 @@ namespace Neo.UnitTests.SmartContract.Native
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache,
                 settings: TestProtocolSettings.Default);
             engine.LoadScript(script.ToArray());
-            Assert.AreEqual(VMState.HALT, engine.Execute());
+            var state = engine.Execute();
+            Assert.AreEqual(VMState.HALT, state);
             var result = engine.ResultStack.Pop();
             var expected =
                 "079AB7B345EB23C944C957A36A6B74C37537163D4CBF73BAD9751DE1DD9C68EF72CB21447E259880F72A871C3EDA1B0C" +
