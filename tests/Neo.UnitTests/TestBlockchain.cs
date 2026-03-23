@@ -13,6 +13,8 @@ using Akka.Actor;
 using Neo.Ledger;
 using Neo.Persistence;
 using Neo.Persistence.Providers;
+using Neo.SmartContract;
+using Neo.SmartContract.RiscV;
 using System;
 using System.Collections.Generic;
 
@@ -22,7 +24,11 @@ namespace Neo.UnitTests
 {
     public static class TestBlockchain
     {
-        private static readonly Lazy<TestNeoSystem> SharedSnapshotSystem = new(() => new TestNeoSystem(TestProtocolSettings.Default));
+        private static readonly Lazy<TestNeoSystem> SharedSnapshotSystem = new(() =>
+        {
+            EnsureApplicationEngineProvider();
+            return new TestNeoSystem(TestProtocolSettings.Default);
+        });
 
         private class TestStoreProvider : IStoreProvider
         {
@@ -48,6 +54,7 @@ namespace Neo.UnitTests
         {
             public void ResetStore()
             {
+                EnsureApplicationEngineProvider();
                 if (StorageProvider is TestStoreProvider testStore)
                 {
                     foreach (var store in testStore.Stores)
@@ -66,13 +73,30 @@ namespace Neo.UnitTests
 
         public static readonly UInt160[]? DefaultExtensibleWitnessWhiteList;
 
-        public static TestNeoSystem GetSystem() => new(TestProtocolSettings.Default);
+        public static TestNeoSystem GetSystem()
+        {
+            EnsureApplicationEngineProvider();
+            return new TestNeoSystem(TestProtocolSettings.Default);
+        }
 
         public static StoreCache GetTestSnapshotCache()
         {
+            EnsureApplicationEngineProvider();
             var system = SharedSnapshotSystem.Value;
             system.ResetStore();
             return system.GetSnapshotCache();
+        }
+
+        private static void EnsureApplicationEngineProvider()
+        {
+            if (ApplicationEngine.Provider is not null)
+                return;
+
+            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
+            if (string.IsNullOrWhiteSpace(libraryPath))
+                return;
+
+            ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
         }
     }
 }

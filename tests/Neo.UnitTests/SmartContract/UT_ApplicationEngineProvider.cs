@@ -31,9 +31,15 @@ namespace Neo.UnitTests.SmartContract
         [TestInitialize]
         public void TestSetup()
         {
+            _previousLibraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
+            RiscvApplicationEngineProviderResolver.ResetForTesting();
+
+            if (!string.IsNullOrWhiteSpace(_previousLibraryPath))
+            {
+                ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
+            }
             _snapshotCache = TestBlockchain.GetSystem().GetTestSnapshotCache();
             ApplicationEngine.Provider = null;
-            _previousLibraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
             RiscvApplicationEngineProviderResolver.ResetForTesting();
         }
 
@@ -75,7 +81,7 @@ namespace Neo.UnitTests.SmartContract
                 Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
             }
 
-            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
             var snapshot = _snapshotCache.CloneCache();
             using var appEngine = ApplicationEngine.Create(TriggerType.Application,
                 null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
@@ -91,7 +97,7 @@ namespace Neo.UnitTests.SmartContract
                 Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
             }
 
-            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
             var system = TestBlockchain.GetSystem();
             var snapshot = system.GetSnapshotCache();
 
