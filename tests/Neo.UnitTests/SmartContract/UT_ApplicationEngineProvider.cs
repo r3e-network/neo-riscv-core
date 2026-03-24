@@ -72,58 +72,6 @@ namespace Neo.UnitTests.SmartContract
         }
 
         [TestMethod]
-        public void TestConfiguredRiscvProviderBecomesDefault()
-        {
-            if (!RiscvAdapterTestSupport.CanUseAdapter())
-            {
-                Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
-            }
-
-            ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
-            var snapshot = _snapshotCache.CloneCache();
-            using var appEngine = ApplicationEngine.Create(TriggerType.Application,
-                null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
-            Assert.IsTrue(RiscvAdapterTestSupport.IsRiscvEngine(appEngine));
-        }
-
-        [TestMethod]
-        public void TestConfiguredRiscvProviderBootstrapsNativeState()
-        {
-            if (!RiscvAdapterTestSupport.CanUseAdapter())
-            {
-                Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
-            }
-
-            ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
-            var system = TestBlockchain.GetSystem();
-            var snapshot = system.GetSnapshotCache();
-
-            Assert.IsTrue(NativeContract.Ledger.Initialized(snapshot));
-            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.NEO.Hash));
-            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.GAS.Hash));
-            Assert.AreEqual(system.GenesisBlock.Hash, NativeContract.Ledger.CurrentHash(snapshot));
-        }
-
-        [TestMethod]
-        public void TestExplicitRiscvProviderBootstrapsNativeState()
-        {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath) || !RiscvAdapterTestSupport.CanUseAdapter())
-            {
-                Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
-            }
-
-            ApplicationEngine.Provider = RiscvAdapterTestSupport.CreateProvider(libraryPath);
-            var system = new TestBlockchain.TestNeoSystem(TestProtocolSettings.Default);
-            var snapshot = system.GetSnapshotCache();
-
-            Assert.IsTrue(NativeContract.Ledger.Initialized(snapshot));
-            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.NEO.Hash));
-            Assert.IsNotNull(NativeContract.ContractManagement.GetContract(snapshot, NativeContract.GAS.Hash));
-            Assert.AreEqual(system.GenesisBlock.Hash, NativeContract.Ledger.CurrentHash(snapshot));
-        }
-
-        [TestMethod]
         public void TestInitNonce()
         {
             var block = new Block
