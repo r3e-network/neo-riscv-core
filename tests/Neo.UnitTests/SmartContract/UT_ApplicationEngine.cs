@@ -38,7 +38,46 @@ namespace Neo.UnitTests.SmartContract
     [TestClass]
     public partial class UT_ApplicationEngine
     {
+        private static NativeRiscvVmBridge s_bridge;
+        private static RiscvApplicationEngineProvider s_provider;
+        private static bool s_bridgeAvailable;
+
         private string eventName = null;
+
+        [ClassInitialize]
+        public static void ClassInit(TestContext _)
+        {
+            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
+            s_bridgeAvailable = !string.IsNullOrWhiteSpace(libraryPath);
+            if (s_bridgeAvailable)
+            {
+                s_bridge = new NativeRiscvVmBridge(libraryPath);
+                s_provider = new RiscvApplicationEngineProvider(s_bridge);
+                ApplicationEngine.Provider = s_provider;
+            }
+        }
+
+        [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
+        public static void ClassCleanup()
+        {
+            ApplicationEngine.Provider = null;
+            s_provider?.Dispose();
+            s_provider = null;
+            s_bridge = null;
+        }
+
+        private void RequireNativeBridge()
+        {
+            if (!s_bridgeAvailable)
+                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
+        }
+
+        private static void AssertHalt(ApplicationEngine engine)
+        {
+            var state = engine.Execute();
+            if (state != VMState.HALT)
+                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
+        }
 
         [TestMethod]
         public void TestNotify()
@@ -144,11 +183,7 @@ namespace Neo.UnitTests.SmartContract
 
             engine.LoadScript(new byte[] { (byte)OpCode.PUSH1, (byte)OpCode.RET });
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(1, bridge.ExecuteCallCount);
             Assert.AreEqual(1, engine.ResultStack.Count);
             Assert.AreEqual(1, engine.ResultStack.Pop().GetInteger());
@@ -157,24 +192,15 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeExecutesTrivialScript()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
 
             engine.LoadScript(new byte[] { (byte)OpCode.PUSH1, (byte)OpCode.RET });
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(1, engine.ResultStack.Count);
             Assert.AreEqual(1, engine.ResultStack.Pop().GetInteger());
         }
@@ -182,24 +208,15 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeReturnsFullResultStack()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
 
             engine.LoadScript(new byte[] { (byte)OpCode.PUSH1, (byte)OpCode.PUSH2, (byte)OpCode.RET });
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(2, engine.ResultStack.Count);
             Assert.AreEqual(2, engine.ResultStack.Pop().GetInteger());
             Assert.AreEqual(1, engine.ResultStack.Pop().GetInteger());
@@ -208,15 +225,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeUnsupportedOpcodeFaultsEngine()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
 
             engine.LoadScript(new byte[] { 0xff });
@@ -229,15 +241,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimePlatformSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_Platform);
@@ -245,11 +252,7 @@ namespace Neo.UnitTests.SmartContract
 
             engine.LoadScript(script.ToArray());
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(1, engine.ResultStack.Count);
             Assert.AreEqual("NEO", engine.ResultStack.Pop<ByteString>().GetString());
         }
@@ -257,15 +260,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetTriggerSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Verification, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetTrigger);
@@ -281,15 +279,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetNetworkSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetNetwork);
@@ -305,15 +298,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetAddressVersionSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetAddressVersion);
@@ -329,11 +317,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetTimeSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var block = new Block
@@ -353,7 +337,6 @@ namespace Neo.UnitTests.SmartContract
                 Transactions = [],
             };
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, block, TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetTime);
@@ -369,15 +352,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeGetTimeFaultsWithoutPersistingBlock()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetTime);
@@ -393,15 +371,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeScriptHashSyscalls()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetExecutingScriptHash);
@@ -421,15 +394,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGasLeftSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default, gas: 987_654);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GasLeft);
@@ -445,15 +413,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetCallingScriptHashAsNull()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetCallingScriptHash);
@@ -469,16 +432,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeLogSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             string logged = null;
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             engine.Log += static (_, args) => { };
             engine.Log += (_, args) => logged = args.Message;
@@ -498,11 +456,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeCheckWitnessSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             byte[] privateKey = { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
                 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 };
@@ -512,7 +466,6 @@ namespace Neo.UnitTests.SmartContract
             tx.Signers[0].Scopes = WitnessScope.Global;
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, tx, snapshotCache, settings: TestProtocolSettings.Default);
             Assert.IsInstanceOfType(engine.GetScriptContainer(), typeof(Neo.VM.Types.Array));
             using var script = new ScriptBuilder();
@@ -530,16 +483,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesCallingScriptHashForMultipleLoadedScripts()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             byte[] callerScript = { (byte)OpCode.PUSH1, (byte)OpCode.RET };
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var callee = new ScriptBuilder();
             callee.EmitSysCall(ApplicationEngine.System_Runtime_GetCallingScriptHash);
@@ -557,14 +505,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetInvocationCounter()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetInvocationCounter);
@@ -582,14 +525,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeBurnGasSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default, gas: 1_000);
             using var script = new ScriptBuilder();
             script.EmitPush(5);
@@ -608,15 +546,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeCurrentSignersSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var tx = TestUtils.GetTransaction(UInt160.Zero);
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, tx, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_CurrentSigners.Hash);
@@ -639,15 +572,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetScriptContainerSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var tx = TestUtils.GetTransaction(UInt160.Zero);
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, tx, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetScriptContainer);
@@ -669,11 +597,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetRandomSyscall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var tx = TestUtils.GetTransaction(UInt160.Zero);
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
@@ -682,7 +606,6 @@ namespace Neo.UnitTests.SmartContract
             using var directEngine = ApplicationEngine.Create(TriggerType.Application, tx, null, block, settings: TestProtocolSettings.Default, gas: 1100_00000000);
             var expected = directEngine.GetRandom();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, tx, null, block, settings: TestProtocolSettings.Default, gas: 1100_00000000);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Runtime_GetRandom);
@@ -698,16 +621,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeNotifyAndGetNotifications()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             string notifiedName = null;
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             engine.Notify += (_, args) => notifiedName = args.EventName;
             using var script = new ScriptBuilder();
@@ -743,11 +661,7 @@ namespace Neo.UnitTests.SmartContract
                     Trusts = WildcardContainer<ContractPermissionDescriptor>.CreateWildcard()
                 });
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual("evt", notifiedName);
             Assert.AreEqual(1, engine.Notifications.Count);
 
@@ -764,14 +678,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetNotificationsWithHashFilter()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.Emit(OpCode.NEWARRAY0);
@@ -815,14 +724,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetNotificationsWithMatchingHash()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.Emit(OpCode.NEWARRAY0);
@@ -866,15 +770,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageGetContextPutAndGet()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -890,11 +789,7 @@ namespace Neo.UnitTests.SmartContract
             snapshotCache.AddContract(scriptBytes.ToScriptHash(), TestUtils.GetContract(scriptBytes));
             engine.LoadScript(scriptBytes);
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(1, engine.ResultStack.Count);
             Assert.AreEqual("v", engine.ResultStack.Pop<ByteString>().GetString());
         }
@@ -902,15 +797,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageReadOnlyContextAndAsReadOnly()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetReadOnlyContext);
@@ -930,15 +820,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageDelete()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -965,15 +850,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageLocalPutGetAndDelete()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitPush("k");
@@ -1000,15 +880,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeStorageReadOnlyContextFaultsOnPut()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetReadOnlyContext);
@@ -1029,16 +904,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageFindIteratorValuesOnly()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var storageItem = new StorageItem { Value = new byte[] { 0x01, 0x02 } };
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -1057,11 +927,7 @@ namespace Neo.UnitTests.SmartContract
 
             engine.LoadScript(scriptBytes);
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(1, engine.ResultStack.Count);
             Assert.AreEqual(storageItem.Value.Span.ToHexString(), engine.ResultStack.Pop().GetSpan().ToHexString());
         }
@@ -1069,16 +935,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageLocalFindIteratorValuesOnly()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var storageItem = new StorageItem { Value = new byte[] { 0x0A, 0x0B } };
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitPush(new byte[] { 0x01 });
@@ -1104,15 +965,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeLoadScript()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.Emit(OpCode.NEWARRAY0);
@@ -1131,15 +987,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeLoadScriptWithArgs()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitPush(1);
@@ -1161,15 +1012,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeLoadScriptCallingHash()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.Emit(OpCode.NEWARRAY0);
@@ -1197,15 +1043,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeLoadScriptCallFlags()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.Emit(OpCode.NEWARRAY0);
@@ -1230,15 +1071,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractGetCallFlags()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Contract_GetCallFlags);
@@ -1253,43 +1089,29 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCreateStandardAccount()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var settings = TestProtocolSettings.Default;
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: settings, gas: 1100_00000000);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Contract_CreateStandardAccount, settings.StandbyCommittee[0].EncodePoint(true));
 
             engine.LoadScript(script.ToArray());
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(Contract.CreateSignatureRedeemScript(settings.StandbyCommittee[0]).ToScriptHash(), new UInt160(engine.ResultStack.Pop().GetSpan()));
         }
 
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCreateMultisigAccount()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var settings = TestProtocolSettings.Default;
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: settings, gas: 1100_00000000);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Contract_CreateMultisigAccount, new object[]
@@ -1303,28 +1125,19 @@ namespace Neo.UnitTests.SmartContract
 
             engine.LoadScript(script.ToArray());
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(Contract.CreateMultiSigRedeemScript(2, settings.StandbyCommittee.Take(3).ToArray()).ToScriptHash(), new UInt160(engine.ResultStack.Pop().GetSpan()));
         }
 
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCall()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var callee = TestUtils.GetContract(new byte[] { (byte)OpCode.PUSH1 }, TestUtils.CreateManifest("test", ContractParameterType.Any));
             snapshotCache.AddContract(callee.Hash, callee);
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(callee.Hash, "test");
@@ -1338,17 +1151,12 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallWithArgs()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var callee = TestUtils.GetContract(new byte[] { (byte)OpCode.ADD }, TestUtils.CreateManifest("sum", ContractParameterType.Any, ContractParameterType.Integer, ContractParameterType.Integer));
             snapshotCache.AddContract(callee.Hash, callee);
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(callee.Hash, "sum", 1, 2);
@@ -1362,11 +1170,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallExecutingHash()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var calleeScript = new byte[]
@@ -1380,7 +1184,6 @@ namespace Neo.UnitTests.SmartContract
             var callee = TestUtils.GetContract(calleeScript, TestUtils.CreateManifest("hash", ContractParameterType.Any));
             snapshotCache.AddContract(callee.Hash, callee);
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(callee.Hash, "hash");
@@ -1394,11 +1197,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallWithNonZeroMethodOffset()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var calleeScript = new byte[] { (byte)OpCode.PUSH0, (byte)OpCode.PUSH1 };
@@ -1407,7 +1206,6 @@ namespace Neo.UnitTests.SmartContract
             var callee = TestUtils.GetContract(calleeScript, manifest);
             snapshotCache.AddContract(callee.Hash, callee);
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(callee.Hash, "offset");
@@ -1421,15 +1219,10 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesTopLevelInitialOffset()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             engine.LoadScript(new byte[] { (byte)OpCode.PUSH0, (byte)OpCode.PUSH1 }, initialPosition: 1);
 
@@ -1440,41 +1233,27 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallToNativeContract()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(NativeContract.NEO.Hash, "getGasPerBlock");
 
             engine.LoadScript(script.ToArray());
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreNotEqual(0, (int)engine.ResultStack.Pop().GetInteger());
         }
 
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallToNativeArrayResult()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(NativeContract.NEO.Hash, "getCommittee");
@@ -1490,18 +1269,13 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallToNativeStateChange()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var persistingBlock = TestBlockchain.GetSystem().GenesisBlock;
             var committeeAddress = NativeContract.NEO.GetCommitteeAddress(snapshotCache);
             var tx = TestUtils.GetTransaction(committeeAddress);
             tx.Signers[0].Scopes = WitnessScope.Global;
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, tx, snapshotCache, persistingBlock, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(NativeContract.NEO.Hash, "setGasPerBlock", 123456789);
@@ -1527,28 +1301,19 @@ namespace Neo.UnitTests.SmartContract
                 }
             };
 
-            var state = engine.Execute();
-            if (state != VMState.HALT)
-            {
-                Assert.Fail(engine.FaultException?.ToString() ?? engine.GetEngineStackInfoOnFault(exceptionStackTrace: false));
-            }
+            AssertHalt(engine);
             Assert.AreEqual(123456789, (int)engine.ResultStack.Pop().GetInteger());
         }
 
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallPermissions()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var callee = TestUtils.GetContract(new byte[] { (byte)OpCode.PUSH1 }, TestUtils.CreateManifest("disallowed", ContractParameterType.Any));
             snapshotCache.AddContract(callee.Hash, callee);
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, null, ProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(callee.Hash, "disallowed");
@@ -1588,11 +1353,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallSafeMethodFlags()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var manifest = TestUtils.CreateManifest("flags", ContractParameterType.Any);
@@ -1607,7 +1368,6 @@ namespace Neo.UnitTests.SmartContract
             }, manifest);
             snapshotCache.AddContract(callee.Hash, callee);
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitDynamicCall(callee.Hash, "flags");
@@ -1621,11 +1381,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesCryptoCheckSig()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             byte[] privateKey = { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
                 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 };
@@ -1635,7 +1391,6 @@ namespace Neo.UnitTests.SmartContract
             var signature = Crypto.Sign(message, privateKey);
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, tx, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Crypto_CheckSig, keyPair.PublicKey.EncodePoint(false), signature);
@@ -1649,11 +1404,7 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesCryptoCheckMultisig()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var tx = TestUtils.GetTransaction(UInt160.Zero);
             var message = tx.GetSignData(TestProtocolSettings.Default.Network);
@@ -1673,7 +1424,6 @@ namespace Neo.UnitTests.SmartContract
             };
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, tx, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.CreateArray(signatures);
@@ -1689,16 +1439,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageFindKeysOnlyRemovePrefix()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var storageItem = new StorageItem { Value = new byte[] { 0x55 } };
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -1725,16 +1470,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageFindDefaultTupleShape()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var storageItem = new StorageItem { Value = new byte[] { 0x0A, 0x0B } };
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -1763,14 +1503,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageFindBackwards()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -1797,14 +1532,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageFindDeserializePickField0()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -1832,14 +1562,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageFindDeserializePickField1()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitSysCall(ApplicationEngine.System_Storage_GetContext);
@@ -1867,14 +1592,9 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesStorageLocalFindKeysOnlyRemovePrefix()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
             using var script = new ScriptBuilder();
             script.EmitPush(new byte[] { 0x01 });
@@ -1899,17 +1619,11 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesNativeOnPersistAndPostPersist()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var system = TestBlockchain.GetSystem();
             var snapshot = system.GetSnapshotCache();
             var block = system.GenesisBlock;
-
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
 
             using (var onPersistScript = new ScriptBuilder())
             using (var onPersistEngine = ApplicationEngine.Create(TriggerType.OnPersist, null, snapshot, block, settings: TestProtocolSettings.Default))
@@ -1939,18 +1653,13 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestNativeRiscvBridgeHandlesContractCallNativeScript()
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            if (string.IsNullOrWhiteSpace(libraryPath))
-            {
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
-            }
+            RequireNativeBridge();
 
             var snapshot = TestBlockchain.GetTestSnapshotCache();
             var settings = TestProtocolSettings.Default;
             var nativeState = NativeContract.NEO.GetContractState(settings, 0);
             var method = nativeState.Manifest.Abi.GetMethod("getGasPerBlock", 0);
 
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath)));
             using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshot, settings: settings, gas: 1100_00000000);
             engine.LoadContract(nativeState, method, CallFlags.All);
 

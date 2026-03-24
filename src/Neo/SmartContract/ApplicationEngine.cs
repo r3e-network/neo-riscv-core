@@ -16,7 +16,7 @@ using Neo.Network.P2P.Payloads;
 using Neo.Persistence;
 using Neo.SmartContract.Manifest;
 using Neo.SmartContract.Native;
-using Neo.SmartContract.RiscV;
+
 using Neo.VM;
 using Neo.VM.Types;
 using System;
@@ -632,7 +632,8 @@ namespace Neo.SmartContract
             settings ??= ProtocolSettings.Default;
             // Adjust jump table according persistingBlock
             var jumpTable = settings.IsHardforkEnabled(Hardfork.HF_Echidna, index) ? DefaultJumpTable : NotEchidnaJumpTable;
-            var provider = Provider ?? RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
+            var provider = Provider ?? throw new InvalidOperationException(
+                "No IApplicationEngineProvider registered. Load Neo.Riscv.Adapter plugin or set ApplicationEngine.Provider.");
             var engine = provider.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
 
             InstanceHandler?.Invoke(engine);
