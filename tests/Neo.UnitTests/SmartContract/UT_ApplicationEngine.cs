@@ -45,7 +45,7 @@ namespace Neo.UnitTests.SmartContract
         [ClassInitialize]
         public static void ClassInit(TestContext _)
         {
-            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
+            var libraryPath = RiscvAdapterTestSupport.ResolveProviderLibraryPath();
             s_adapterAvailable = !string.IsNullOrWhiteSpace(libraryPath) && RiscvAdapterTestSupport.CanUseAdapter();
             if (s_adapterAvailable)
             {

@@ -32,18 +32,23 @@ internal static class RiscvAdapterTestSupport
 
     internal static bool CanUseAdapter()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(HostLibEnvVar)))
+        var assembly = TryLoadAdapterAssembly();
+        if (assembly is null)
             return false;
 
-        return TryLoadAdapterAssembly() is not null;
+        return ResolveLibraryPath(assembly) is not null;
     }
 
     internal static string AdapterUnavailableReason()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(HostLibEnvVar)))
-            return $"{HostLibEnvVar} is not set.";
+        var assembly = TryLoadAdapterAssembly();
+        if (assembly is null)
+            return "Neo.Riscv.Adapter assembly is not available from the configured plugin locations.";
 
-        return "Neo.Riscv.Adapter assembly is not available from the configured plugin locations.";
+        if (ResolveLibraryPath(assembly) is null)
+            return $"Neo.Riscv.Adapter is present but no RISC-V host library could be resolved via {HostLibEnvVar} or the staged plugin bundle.";
+
+        return "Neo.Riscv.Adapter is unavailable.";
     }
 
     internal static bool IsRiscvEngine(ApplicationEngine engine)
@@ -76,6 +81,12 @@ internal static class RiscvAdapterTestSupport
 
         return (IApplicationEngineProvider)(resolveMethod.Invoke(null, null)
             ?? throw new InvalidOperationException("ResolveRequiredProvider returned null."));
+    }
+
+    internal static string? ResolveProviderLibraryPath()
+    {
+        var assembly = TryLoadAdapterAssembly();
+        return assembly is null ? null : ResolveLibraryPath(assembly);
     }
 
     internal static void ResetProviderForTesting()
@@ -121,5 +132,16 @@ internal static class RiscvAdapterTestSupport
         };
 
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string? ResolveLibraryPath(Assembly assembly)
+    {
+        var resolverType = assembly.GetType(ResolverTypeName, throwOnError: true)!;
+        var method = resolverType.GetMethod(
+            "ResolveLibraryPathForTesting",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("ResolveLibraryPathForTesting was not found.");
+
+        return method.Invoke(null, null) as string;
     }
 }
