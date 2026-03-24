@@ -9,7 +9,6 @@
 // Redistribution and use in source and binary forms with or without
 // modifications are permitted.
 
-using Neo.Plugins;
 using Neo.SmartContract;
 using System;
 using System.IO;
@@ -116,7 +115,6 @@ internal static class RiscvAdapterTestSupport
 
         var candidates = new[]
         {
-            Path.Combine(Plugin.PluginsDirectory, AdapterAssemblyName, AdapterAssemblyFileName),
             Path.Combine(AppContext.BaseDirectory, "Plugins", AdapterAssemblyName, AdapterAssemblyFileName),
             Path.Combine(Environment.CurrentDirectory, "Plugins", AdapterAssemblyName, AdapterAssemblyFileName),
             Path.Combine(AppContext.BaseDirectory, AdapterAssemblyFileName),

@@ -84,17 +84,26 @@ namespace Neo.Plugins
         static Plugin()
         {
             if (!Directory.Exists(PluginsDirectory)) return;
-            s_configWatcher = new FileSystemWatcher(PluginsDirectory)
+            try
             {
-                EnableRaisingEvents = true,
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.CreationTime |
-                               NotifyFilters.LastWrite | NotifyFilters.Size,
-            };
-            s_configWatcher.Changed += ConfigWatcher_Changed;
-            s_configWatcher.Created += ConfigWatcher_Changed;
-            s_configWatcher.Renamed += ConfigWatcher_Changed;
-            s_configWatcher.Deleted += ConfigWatcher_Changed;
+                s_configWatcher = new FileSystemWatcher(PluginsDirectory)
+                {
+                    EnableRaisingEvents = true,
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.CreationTime |
+                                   NotifyFilters.LastWrite | NotifyFilters.Size,
+                };
+                s_configWatcher.Changed += ConfigWatcher_Changed;
+                s_configWatcher.Created += ConfigWatcher_Changed;
+                s_configWatcher.Renamed += ConfigWatcher_Changed;
+                s_configWatcher.Deleted += ConfigWatcher_Changed;
+            }
+            catch (Exception ex)
+            {
+                Utility.Log(nameof(Plugin), LogLevel.Warning,
+                    $"Plugin config watcher disabled for '{PluginsDirectory}': {ex.Message}");
+                s_configWatcher = null;
+            }
             AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
         }
 
