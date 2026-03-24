@@ -14,7 +14,6 @@ using Neo.Ledger;
 using Neo.Persistence;
 using Neo.Persistence.Providers;
 using Neo.SmartContract;
-using Neo.SmartContract.RiscV;
 using System;
 using System.Collections.Generic;
 
@@ -92,11 +91,10 @@ namespace Neo.UnitTests
             if (ApplicationEngine.Provider is not null)
                 return;
 
-            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
-            if (string.IsNullOrWhiteSpace(libraryPath))
+            if (!RiscvAdapterTestSupport.CanUseAdapter())
                 return;
 
-            ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
+            ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
         }
     }
 }

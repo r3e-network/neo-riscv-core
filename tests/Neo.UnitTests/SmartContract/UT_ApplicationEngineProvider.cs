@@ -15,7 +15,6 @@ using Neo.Network.P2P.Payloads;
 using Neo.Persistence;
 using Neo.SmartContract;
 using Neo.SmartContract.Native;
-using Neo.SmartContract.RiscV;
 using Neo.VM;
 using System;
 using System.Reflection;
@@ -31,24 +30,24 @@ namespace Neo.UnitTests.SmartContract
         [TestInitialize]
         public void TestSetup()
         {
-            _previousLibraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
-            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            _previousLibraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
+            RiscvAdapterTestSupport.ResetProviderForTesting();
 
             if (!string.IsNullOrWhiteSpace(_previousLibraryPath))
             {
-                ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
+                ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
             }
             _snapshotCache = TestBlockchain.GetSystem().GetTestSnapshotCache();
             ApplicationEngine.Provider = null;
-            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            RiscvAdapterTestSupport.ResetProviderForTesting();
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
             ApplicationEngine.Provider = null;
-            Environment.SetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable, _previousLibraryPath);
-            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            Environment.SetEnvironmentVariable("NEO_RISCV_HOST_LIB", _previousLibraryPath);
+            RiscvAdapterTestSupport.ResetProviderForTesting();
         }
 
         [TestMethod]
@@ -65,8 +64,8 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestDefaultAppEngineProvider()
         {
-            Environment.SetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable, null);
-            RiscvApplicationEngineProviderResolver.ResetForTesting();
+            Environment.SetEnvironmentVariable("NEO_RISCV_HOST_LIB", null);
+            RiscvAdapterTestSupport.ResetProviderForTesting();
             var snapshot = _snapshotCache.CloneCache();
             Assert.ThrowsExactly<InvalidOperationException>(() => _ = ApplicationEngine.Create(TriggerType.Application,
                 null, snapshot, gas: 0, settings: TestProtocolSettings.Default));
@@ -75,29 +74,27 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestConfiguredRiscvProviderBecomesDefault()
         {
-            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
-            if (string.IsNullOrWhiteSpace(libraryPath))
+            if (!RiscvAdapterTestSupport.CanUseAdapter())
             {
-                Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
+                Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
             }
 
-            ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
+            ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
             var snapshot = _snapshotCache.CloneCache();
             using var appEngine = ApplicationEngine.Create(TriggerType.Application,
                 null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
-            Assert.IsTrue(appEngine is RiscvApplicationEngine);
+            Assert.IsTrue(RiscvAdapterTestSupport.IsRiscvEngine(appEngine));
         }
 
         [TestMethod]
         public void TestConfiguredRiscvProviderBootstrapsNativeState()
         {
-            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
-            if (string.IsNullOrWhiteSpace(libraryPath))
+            if (!RiscvAdapterTestSupport.CanUseAdapter())
             {
-                Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
+                Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
             }
 
-            ApplicationEngine.Provider = RiscvApplicationEngineProviderResolver.ResolveRequiredProvider();
+            ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
             var system = TestBlockchain.GetSystem();
             var snapshot = system.GetSnapshotCache();
 
@@ -110,13 +107,13 @@ namespace Neo.UnitTests.SmartContract
         [TestMethod]
         public void TestExplicitRiscvProviderBootstrapsNativeState()
         {
-            var libraryPath = Environment.GetEnvironmentVariable(NativeRiscvVmBridge.LibraryPathEnvironmentVariable);
-            if (string.IsNullOrWhiteSpace(libraryPath))
+            var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
+            if (string.IsNullOrWhiteSpace(libraryPath) || !RiscvAdapterTestSupport.CanUseAdapter())
             {
-                Assert.Inconclusive($"{NativeRiscvVmBridge.LibraryPathEnvironmentVariable} is not set.");
+                Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
             }
 
-            ApplicationEngine.Provider = new RiscvApplicationEngineProvider(new NativeRiscvVmBridge(libraryPath));
+            ApplicationEngine.Provider = RiscvAdapterTestSupport.CreateProvider(libraryPath);
             var system = new TestBlockchain.TestNeoSystem(TestProtocolSettings.Default);
             var snapshot = system.GetSnapshotCache();
 

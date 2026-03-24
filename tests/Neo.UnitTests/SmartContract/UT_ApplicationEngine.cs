@@ -13,7 +13,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neo.Extensions;
 using Neo.SmartContract;
 using Neo.SmartContract.Manifest;
-using Neo.SmartContract.RiscV;
 using Neo.SmartContract.Native;
 using Neo.Network.P2P.Payloads;
 using Neo.Network.P2P;
@@ -38,9 +37,8 @@ namespace Neo.UnitTests.SmartContract
     [TestClass]
     public partial class UT_ApplicationEngine
     {
-        private static NativeRiscvVmBridge s_bridge;
-        private static RiscvApplicationEngineProvider s_provider;
-        private static bool s_bridgeAvailable;
+        private static IApplicationEngineProvider s_provider;
+        private static bool s_adapterAvailable;
 
         private string eventName = null;
 
@@ -48,11 +46,10 @@ namespace Neo.UnitTests.SmartContract
         public static void ClassInit(TestContext _)
         {
             var libraryPath = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
-            s_bridgeAvailable = !string.IsNullOrWhiteSpace(libraryPath);
-            if (s_bridgeAvailable)
+            s_adapterAvailable = !string.IsNullOrWhiteSpace(libraryPath) && RiscvAdapterTestSupport.CanUseAdapter();
+            if (s_adapterAvailable)
             {
-                s_bridge = new NativeRiscvVmBridge(libraryPath);
-                s_provider = new RiscvApplicationEngineProvider(s_bridge);
+                s_provider = RiscvAdapterTestSupport.CreateProvider(libraryPath);
                 ApplicationEngine.Provider = s_provider;
             }
         }
@@ -61,15 +58,15 @@ namespace Neo.UnitTests.SmartContract
         public static void ClassCleanup()
         {
             ApplicationEngine.Provider = null;
-            s_provider?.Dispose();
+            if (s_provider is IDisposable disposable)
+                disposable.Dispose();
             s_provider = null;
-            s_bridge = null;
         }
 
         private void RequireNativeBridge()
         {
-            if (!s_bridgeAvailable)
-                Assert.Inconclusive("NEO_RISCV_HOST_LIB is not set.");
+            if (!s_adapterAvailable)
+                Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
         }
 
         private static void AssertHalt(ApplicationEngine engine)
@@ -158,35 +155,6 @@ namespace Neo.UnitTests.SmartContract
             {
                 Assert.IsLessThanOrEqualTo(setting[sortedHardforks[i + 1]], setting[sortedHardforks[i]]);
             }
-        }
-
-        [TestMethod]
-        public void TestCreateUsesRiscvProvider()
-        {
-            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            var bridge = new RecordingRiscvVmBridge();
-
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(bridge));
-            using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
-
-            Assert.IsInstanceOfType(engine, typeof(RiscvApplicationEngine));
-        }
-
-        [TestMethod]
-        public void TestRiscvEngineExecutesTrivialScriptThroughBridge()
-        {
-            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            var bridge = new RecordingRiscvVmBridge();
-
-            using var scope = RiscvBridgeScope.UseProvider(new RiscvApplicationEngineProvider(bridge));
-            using var engine = ApplicationEngine.Create(TriggerType.Application, null, snapshotCache, settings: TestProtocolSettings.Default);
-
-            engine.LoadScript(new byte[] { (byte)OpCode.PUSH1, (byte)OpCode.RET });
-
-            AssertHalt(engine);
-            Assert.AreEqual(1, bridge.ExecuteCallCount);
-            Assert.AreEqual(1, engine.ResultStack.Count);
-            Assert.AreEqual(1, engine.ResultStack.Pop().GetInteger());
         }
 
         [TestMethod]
@@ -1778,34 +1746,6 @@ namespace Neo.UnitTests.SmartContract
                 Assert.IsInstanceOfType(engine.ResultStack.Peek(), typeof(Boolean));
                 var res = (Boolean)engine.ResultStack.Pop();
                 Assert.IsTrue(res.GetBoolean());
-            }
-        }
-
-        private sealed class RecordingRiscvVmBridge : IRiscvVmBridge
-        {
-            public int ExecuteCallCount { get; private set; }
-
-            public RiscvExecutionResult Execute(RiscvExecutionRequest request)
-            {
-                ExecuteCallCount++;
-                return new RiscvExecutionResult(
-                    VMState.HALT,
-                    new StackItem[] { new Integer(1) },
-                    null);
-            }
-
-            public RiscvExecutionResult ExecuteContract(
-                ApplicationEngine engine,
-                ContractState contract,
-                string method,
-                CallFlags flags,
-                IReadOnlyList<StackItem> args)
-            {
-                ExecuteCallCount++;
-                return new RiscvExecutionResult(
-                    VMState.HALT,
-                    new StackItem[] { new Integer(1) },
-                    null);
             }
         }
     }

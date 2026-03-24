@@ -29,7 +29,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Neo.Extensions\Neo.Extensions.csproj" />
     <ProjectReference Include="..\..\src\Neo\Neo.csproj" />
-    <ProjectReference Include="..\..\..\neo-riscv-vm\compat\Neo.Riscv.Adapter\Neo.Riscv.Adapter.csproj" />
   </ItemGroup>
 
 </Project>
