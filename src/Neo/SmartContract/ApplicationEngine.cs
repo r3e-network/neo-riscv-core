@@ -362,7 +362,7 @@ namespace Neo.SmartContract
             OnFault(ex);
         }
 
-        private ExecutionContext CallContractInternal(UInt160 contractHash, string method, CallFlags flags, bool hasReturnValue, StackItem[] args)
+        internal ExecutionContext CallContractInternal(UInt160 contractHash, string method, CallFlags flags, bool hasReturnValue, StackItem[] args)
         {
             ContractState? contract = NativeContract.ContractManagement.GetContract(SnapshotCache, contractHash);
             if (contract is null) throw new InvalidOperationException($"Called Contract Does Not Exist: {contractHash}");
@@ -632,9 +632,8 @@ namespace Neo.SmartContract
             settings ??= ProtocolSettings.Default;
             // Adjust jump table according persistingBlock
             var jumpTable = settings.IsHardforkEnabled(Hardfork.HF_Echidna, index) ? DefaultJumpTable : NotEchidnaJumpTable;
-            var provider = Provider ?? throw new InvalidOperationException(
-                "No IApplicationEngineProvider registered. Load Neo.Riscv.Adapter plugin or set ApplicationEngine.Provider.");
-            var engine = provider.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
+            var engine = Provider?.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable)
+                  ?? new ApplicationEngine(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
 
             InstanceHandler?.Invoke(engine);
             return engine;

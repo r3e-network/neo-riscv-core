@@ -181,6 +181,7 @@ namespace Neo.Plugins
             Type[] exportedTypes;
 
             var assemblyName = assembly.GetName().Name;
+            Utility.Log(nameof(Plugin), LogLevel.Info, $"Scanning assembly: {assemblyName} ({assembly.FullName})");
 
             try
             {
@@ -194,6 +195,7 @@ namespace Neo.Plugins
 
             foreach (var type in exportedTypes)
             {
+                Utility.Log(nameof(Plugin), LogLevel.Debug, $"  Type: {type.FullName} IsPlugin={type.IsSubclassOf(typeof(Plugin))} IsAbstract={type.IsAbstract}");
                 if (!type.IsSubclassOf(typeof(Plugin))) continue;
                 if (type.IsAbstract) continue;
 

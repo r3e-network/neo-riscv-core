@@ -85,8 +85,8 @@ namespace Neo.SmartContract
             Hash = new UInt160(array[2].GetSpan());
             Nef = NefFile.Parse(((ByteString)array[3]).Memory, verify);
             Manifest = array[4].ToInteroperable<ContractManifest>();
-            // Backward compatible: Type field defaults to NeoVM if not present
-            Type = array.Count > 5 ? (ContractType)(byte)array[5].GetInteger() : ContractType.NeoVM;
+            // Resolve ContractType at runtime from manifest/binary — not serialized to preserve consensus compatibility
+            Type = ContractVmTypeResolver.Resolve(Manifest, Nef.Script);
         }
 
         /// <summary>
@@ -119,7 +119,9 @@ namespace Neo.SmartContract
 
         public StackItem ToStackItem(IReferenceCounter? referenceCounter)
         {
-            return new Array(referenceCounter, [Id, (int)UpdateCounter, Hash.ToArray(), Nef.ToArray(), Manifest.ToStackItem(referenceCounter), (int)(byte)Type]);
+            // Do NOT include Type in serialization — it must match standard Neo consensus.
+            // ContractType is resolved at runtime from manifest/binary signature.
+            return new Array(referenceCounter, [Id, (int)UpdateCounter, Hash.ToArray(), Nef.ToArray(), Manifest.ToStackItem(referenceCounter)]);
         }
     }
 }

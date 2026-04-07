@@ -563,6 +563,176 @@ namespace Neo.UnitTests.SmartContract
         }
 
         [TestMethod]
+        public void TestNativeRiscvBridgeHandlesRuntimeGetScriptContainerAfterMultiSigStyleStackSetup()
+        {
+            RequireNativeBridge();
+
+            var tx = TestUtils.GetTransaction(UInt160.Zero);
+            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
+            using var engine = ApplicationEngine.Create(TriggerType.Verification, tx, snapshotCache, settings: TestProtocolSettings.Default);
+
+            using var invocation = new ScriptBuilder();
+            invocation.EmitPush(new byte[64]);
+            invocation.EmitPush(new byte[64]);
+            invocation.EmitPush(new byte[64]);
+
+            using var verification = new ScriptBuilder();
+            verification.EmitPush(3);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(4);
+            verification.Emit(OpCode.INITSLOT, new ReadOnlySpan<byte>([7, 0]));
+            verification.Emit(OpCode.STLOC5);
+            verification.Emit(OpCode.LDLOC5, OpCode.PACK, OpCode.STLOC1);
+            verification.Emit(OpCode.STLOC6);
+            verification.Emit(OpCode.DEPTH);
+            verification.Emit(OpCode.LDLOC6);
+            verification.Emit(OpCode.JMPEQ, new ReadOnlySpan<byte>([0]));
+            var checkEndOffset = verification.Length;
+            verification.Emit(OpCode.ABORT);
+            var checkStartOffset = verification.Length;
+            verification.Emit(OpCode.LDLOC6);
+            verification.Emit(OpCode.PACK, OpCode.STLOC0);
+            verification.EmitSysCall(ApplicationEngine.System_Runtime_GetNetwork);
+            verification.EmitPush(0x100000000);
+            verification.Emit(OpCode.ADD, OpCode.PUSH4, OpCode.LEFT);
+            verification.EmitSysCall(ApplicationEngine.System_Runtime_GetScriptContainer);
+            verification.Emit(OpCode.PUSH0, OpCode.PICKITEM);
+            verification.Emit(OpCode.RET);
+
+            var verificationScript = verification.ToArray();
+            verificationScript[checkEndOffset - 1] = (byte)(checkStartOffset - checkEndOffset + 2);
+
+            engine.LoadScript(verificationScript, configureState: p => p.CallFlags = CallFlags.ReadOnly);
+            engine.LoadScript(new Script(invocation.ToArray(), true), configureState: p => p.CallFlags = CallFlags.None);
+
+            Assert.AreEqual(VMState.HALT, engine.Execute());
+            Assert.AreEqual(tx.Hash, new UInt256(engine.ResultStack.Pop().GetSpan()));
+        }
+
+        [TestMethod]
+        public void TestNativeRiscvBridgeBuildsVerificationMessageAfterMultiSigStyleStackSetup()
+        {
+            RequireNativeBridge();
+
+            var tx = TestUtils.GetTransaction(UInt160.Zero);
+            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
+            using var engine = ApplicationEngine.Create(TriggerType.Verification, tx, snapshotCache, settings: TestProtocolSettings.Default);
+
+            using var invocation = new ScriptBuilder();
+            invocation.EmitPush(new byte[64]);
+            invocation.EmitPush(new byte[64]);
+            invocation.EmitPush(new byte[64]);
+
+            using var verification = new ScriptBuilder();
+            verification.EmitPush(3);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(new byte[33]);
+            verification.EmitPush(4);
+            verification.Emit(OpCode.INITSLOT, new ReadOnlySpan<byte>([7, 0]));
+            verification.Emit(OpCode.STLOC5);
+            verification.Emit(OpCode.LDLOC5, OpCode.PACK, OpCode.STLOC1);
+            verification.Emit(OpCode.STLOC6);
+            verification.Emit(OpCode.DEPTH);
+            verification.Emit(OpCode.LDLOC6);
+            verification.Emit(OpCode.JMPEQ, new ReadOnlySpan<byte>([0]));
+            var checkEndOffset = verification.Length;
+            verification.Emit(OpCode.ABORT);
+            var checkStartOffset = verification.Length;
+            verification.Emit(OpCode.LDLOC6);
+            verification.Emit(OpCode.PACK, OpCode.STLOC0);
+            verification.EmitSysCall(ApplicationEngine.System_Runtime_GetNetwork);
+            verification.EmitPush(0x100000000);
+            verification.Emit(OpCode.ADD, OpCode.PUSH4, OpCode.LEFT);
+            verification.EmitSysCall(ApplicationEngine.System_Runtime_GetScriptContainer);
+            verification.Emit(OpCode.PUSH0, OpCode.PICKITEM);
+            verification.Emit(OpCode.CAT, OpCode.STLOC2, OpCode.LDLOC2);
+            verification.Emit(OpCode.RET);
+
+            var verificationScript = verification.ToArray();
+            verificationScript[checkEndOffset - 1] = (byte)(checkStartOffset - checkEndOffset + 2);
+
+            engine.LoadScript(verificationScript, configureState: p => p.CallFlags = CallFlags.ReadOnly);
+            engine.LoadScript(new Script(invocation.ToArray(), true), configureState: p => p.CallFlags = CallFlags.None);
+
+            Assert.AreEqual(VMState.HALT, engine.Execute());
+            CollectionAssert.AreEqual(tx.GetSignData(TestProtocolSettings.Default.Network), engine.ResultStack.Pop().GetSpan().ToArray());
+        }
+
+        [TestMethod]
+        public void TestNativeRiscvBridgeHandlesVerifyWithECDsaAfterArrayPacking()
+        {
+            RequireNativeBridge();
+
+            byte[] privkey = "7177f0d04c79fa0b8c91fe90c1cf1d44772d1fba6e5eb9b281a22cd3aafb51fe".HexToBytes();
+            var pubKey = Neo.Cryptography.ECC.ECPoint.Parse(
+                "04fd0a8c1ce5ae5570fdd46e7599c16b175bf0ebdfe9c178f1ab848fb16dac74a5" +
+                "d301b0534c7bcf1b3760881f0c420d17084907edd771e1c9c8e941bbf6ff9108",
+                Neo.Cryptography.ECC.ECCurve.Secp256k1);
+
+            var tx = TestUtils.GetTransaction(UInt160.Zero);
+            var signature = Crypto.Sign(
+                tx.GetSignData(TestProtocolSettings.Default.Network),
+                privkey,
+                Neo.Cryptography.ECC.ECCurve.Secp256k1,
+                HashAlgorithm.Keccak256);
+            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
+            using var engine = ApplicationEngine.Create(TriggerType.Verification, tx, snapshotCache, settings: TestProtocolSettings.Default);
+
+            using var invocation = new ScriptBuilder();
+            invocation.EmitPush(signature);
+
+            using var verification = new ScriptBuilder();
+            verification.EmitPush(1);
+            verification.EmitPush(pubKey.EncodePoint(true));
+            verification.EmitPush(1);
+            verification.Emit(OpCode.INITSLOT, new ReadOnlySpan<byte>([7, 0]));
+            verification.Emit(OpCode.STLOC5);
+            verification.Emit(OpCode.LDLOC5, OpCode.PACK, OpCode.STLOC1);
+            verification.Emit(OpCode.STLOC6);
+            verification.Emit(OpCode.DEPTH);
+            verification.Emit(OpCode.LDLOC6);
+            verification.Emit(OpCode.JMPEQ, new ReadOnlySpan<byte>([0]));
+            var checkEndOffset = verification.Length;
+            verification.Emit(OpCode.ABORT);
+            var checkStartOffset = verification.Length;
+            verification.Emit(OpCode.LDLOC6);
+            verification.Emit(OpCode.PACK, OpCode.STLOC0);
+            verification.EmitSysCall(ApplicationEngine.System_Runtime_GetNetwork);
+            verification.EmitPush(0x100000000);
+            verification.Emit(OpCode.ADD, OpCode.PUSH4, OpCode.LEFT);
+            verification.EmitSysCall(ApplicationEngine.System_Runtime_GetScriptContainer);
+            verification.Emit(OpCode.PUSH0, OpCode.PICKITEM);
+            verification.Emit(OpCode.CAT, OpCode.STLOC2);
+            verification.Emit(OpCode.PUSH0, OpCode.STLOC3);
+            verification.Emit(OpCode.PUSH0, OpCode.STLOC4);
+            verification.EmitPush((byte)NamedCurveHash.secp256k1Keccak256);
+            verification.Emit(
+                OpCode.LDLOC0, OpCode.LDLOC3, OpCode.PICKITEM,
+                OpCode.LDLOC1, OpCode.LDLOC4, OpCode.PICKITEM,
+                OpCode.LDLOC2,
+                OpCode.PUSH4, OpCode.PACK);
+            verification.EmitPush(CallFlags.None);
+            verification.EmitPush("verifyWithECDsa");
+            verification.EmitPush(CryptoLib.CryptoLib.Hash);
+            verification.EmitSysCall(ApplicationEngine.System_Contract_Call);
+            verification.Emit(OpCode.RET);
+
+            var verificationScript = verification.ToArray();
+            verificationScript[checkEndOffset - 1] = (byte)(checkStartOffset - checkEndOffset + 2);
+
+            engine.LoadScript(verificationScript, configureState: p => p.CallFlags = CallFlags.ReadOnly);
+            engine.LoadScript(new Script(invocation.ToArray(), true), configureState: p => p.CallFlags = CallFlags.None);
+
+            Assert.AreEqual(VMState.HALT, engine.Execute());
+            Assert.IsTrue(engine.ResultStack.Pop().GetBoolean());
+        }
+
+        [TestMethod]
         public void TestNativeRiscvBridgeHandlesRuntimeGetRandomSyscall()
         {
             RequireNativeBridge();

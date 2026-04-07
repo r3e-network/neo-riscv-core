@@ -67,8 +67,11 @@ namespace Neo.UnitTests.SmartContract
             Environment.SetEnvironmentVariable("NEO_RISCV_HOST_LIB", null);
             RiscvAdapterTestSupport.ResetProviderForTesting();
             var snapshot = _snapshotCache.CloneCache();
-            Assert.ThrowsExactly<InvalidOperationException>(() => _ = ApplicationEngine.Create(TriggerType.Application,
-                null, snapshot, gas: 0, settings: TestProtocolSettings.Default));
+            // Without a provider, Create falls back to standard ApplicationEngine
+            var engine = ApplicationEngine.Create(TriggerType.Application,
+                null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
+            Assert.IsNotNull(engine);
+            Assert.IsTrue(engine is ApplicationEngine);
         }
 
         [TestMethod]

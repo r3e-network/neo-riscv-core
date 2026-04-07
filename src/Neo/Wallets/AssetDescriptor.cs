@@ -15,6 +15,7 @@ using Neo.SmartContract;
 using Neo.SmartContract.Native;
 using Neo.VM;
 using System;
+using System.Numerics;
 
 namespace Neo.Wallets
 {
@@ -54,25 +55,40 @@ namespace Neo.Wallets
             var contract = NativeContract.ContractManagement.GetContract(snapshot, assetId);
             if (contract is null) throw new ArgumentException($"No asset contract found for assetId {assetId}. Please ensure the assetId is correct and the asset is deployed on the blockchain.", nameof(assetId));
 
-            byte[] script;
-            using (ScriptBuilder sb = new())
-            {
-                sb.EmitDynamicCall(assetId, "decimals", CallFlags.ReadOnly);
-                sb.EmitDynamicCall(assetId, "symbol", CallFlags.ReadOnly);
-                script = sb.ToArray();
-            }
-
-            using var engine = ApplicationEngine.Run(script, snapshot, settings: settings, gas: 0_30000000L);
-            if (engine.State != VMState.HALT) throw new ArgumentException($"Failed to execute 'decimals' or 'symbol' method for asset {assetId}. The contract execution did not complete successfully (VM state: {engine.State}).", nameof(assetId));
             AssetId = assetId;
             AssetName = contract.Manifest.Name;
-            Symbol = engine.ResultStack.Pop().GetString()!;
-            Decimals = (byte)engine.ResultStack.Pop().GetInteger();
+            Decimals = (byte)CallReadOnlyInteger(snapshot, settings, assetId, "decimals");
+            Symbol = CallReadOnlyString(snapshot, settings, assetId, "symbol");
         }
 
         public override string ToString()
         {
             return AssetName;
+        }
+
+        private static BigInteger CallReadOnlyInteger(DataCache snapshot, ProtocolSettings settings, UInt160 assetId, string method)
+        {
+            using var engine = CreateReadOnlyEngine(snapshot, settings, assetId, method);
+            var result = engine.ResultStack.Pop();
+            return result.GetInteger();
+        }
+
+        private static string CallReadOnlyString(DataCache snapshot, ProtocolSettings settings, UInt160 assetId, string method)
+        {
+            using var engine = CreateReadOnlyEngine(snapshot, settings, assetId, method);
+            var result = engine.ResultStack.Pop();
+            return result.GetString()!;
+        }
+
+        private static ApplicationEngine CreateReadOnlyEngine(DataCache snapshot, ProtocolSettings settings, UInt160 assetId, string method)
+        {
+            using ScriptBuilder sb = new();
+            sb.EmitDynamicCall(assetId, method, CallFlags.ReadOnly);
+
+            var engine = ApplicationEngine.Run(sb.ToArray(), snapshot, settings: settings, gas: 0_30000000L);
+            if (engine.State != VMState.HALT)
+                throw new ArgumentException($"Failed to execute '{method}' for asset {assetId}. The contract execution did not complete successfully (VM state: {engine.State}).", nameof(assetId));
+            return engine;
         }
     }
 }
