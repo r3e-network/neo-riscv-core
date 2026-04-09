@@ -132,7 +132,7 @@ namespace Neo.UnitTests.SmartContract
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
             var nef = new NefFile()
             {
-                Script = new byte[] { 0x50, 0x56, 0x4D, 0x00, 0x01 },
+                Script = new byte[] { 0x50, 0x56, 0x4D, 0x00, 0x01, 0x00, 0x00, 0x00 },
                 Source = string.Empty,
                 Compiler = "",
                 Tokens = []

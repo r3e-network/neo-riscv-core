@@ -278,9 +278,16 @@ namespace Neo.SmartContract.Native
             NefFile nef = nefFile.AsSerializable<NefFile>();
             ContractManifest parsedManifest = ContractManifest.Parse(manifest);
             var contractType = ContractVmTypeResolver.Resolve(parsedManifest, nef.Script);
+            if (contractType == ContractType.RiscV && !engine.IsHardforkEnabled(Hardfork.HF_RiscV))
+                throw new InvalidOperationException("RISC-V contracts require HF_RiscV hardfork activation.");
             if (contractType == ContractType.NeoVM)
             {
                 Helper.Check(new Script(nef.Script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), parsedManifest.Abi);
+            }
+            else if (contractType == ContractType.RiscV)
+            {
+                if (nef.Script.Length < 8)
+                    throw new FormatException("RISC-V contract script is too short to be a valid PolkaVM binary.");
             }
             UInt160 hash = Helper.GetContractHash(tx.Sender, nef.CheckSum, parsedManifest.Name);
 

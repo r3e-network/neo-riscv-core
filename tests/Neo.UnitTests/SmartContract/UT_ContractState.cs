@@ -80,6 +80,7 @@ namespace Neo.UnitTests.SmartContract
             newContract.FromStackItem(contract.ToStackItem(null));
             Assert.AreEqual(contract.Manifest.ToJson().ToString(), ((ContractState)newContract).Manifest.ToJson().ToString());
             Assert.IsTrue(((ContractState)newContract).Script.Span.SequenceEqual(contract.Script.Span));
+            Assert.AreEqual(ContractType.NeoVM, ((ContractState)newContract).Type);
         }
 
         [TestMethod]
@@ -96,6 +97,36 @@ namespace Neo.UnitTests.SmartContract
             Assert.AreEqual("0x820944cfdc70976602d71b0091445eedbc661bc5", json["hash"].AsString());
             Assert.AreEqual("AQ==", json["nef"]["script"].AsString());
             Assert.AreEqual(manifest.ToJson().AsString(), json["manifest"].AsString());
+            Assert.IsFalse(json.ContainsProperty("type"));
+        }
+
+        [TestMethod]
+        public void TestIInteroperableResolvesRiscvTypeFromManifestAndBinary()
+        {
+            var riscvManifest = TestUtils.CreateDefaultManifest();
+            riscvManifest.Extra = new JObject
+            {
+                ["vm"] = ContractVmTypeResolver.RiscvPolkaVmMarker
+            };
+
+            var riscvContract = new ContractState
+            {
+                Nef = new NefFile
+                {
+                    Compiler = nameof(ScriptBuilder),
+                    Source = string.Empty,
+                    Tokens = Array.Empty<MethodToken>(),
+                    Script = new byte[] { 0x50, 0x56, 0x4D, 0x00, 0x01 }
+                },
+                Hash = UInt160.Zero,
+                Manifest = riscvManifest
+            };
+            riscvContract.Nef.CheckSum = NefFile.ComputeChecksum(riscvContract.Nef);
+
+            IInteroperable roundTripped = (ContractState)RuntimeHelpers.GetUninitializedObject(typeof(ContractState));
+            roundTripped.FromStackItem(riscvContract.ToStackItem(null));
+
+            Assert.AreEqual(ContractType.RiscV, ((ContractState)roundTripped).Type);
         }
     }
 }

@@ -1,3 +1,14 @@
+// Copyright (C) 2015-2026 The Neo Project.
+//
+// ContractVmTypeResolver.cs file belongs to the neo project and is free
+// software distributed under the MIT software license, see the
+// accompanying file LICENSE in the main directory of the
+// repository or http://www.opensource.org/licenses/mit-license.php
+// for more details.
+//
+// Redistribution and use in source and binary forms with or without
+// modifications are permitted.
+
 using Neo.Json;
 using Neo.SmartContract.Manifest;
 using System;
@@ -35,13 +46,13 @@ namespace Neo.SmartContract
             if (string.IsNullOrWhiteSpace(marker))
                 throw new FormatException("Manifest extra.vm cannot be empty.");
 
-            if (string.Equals(marker, LegacyNeoVmMarker, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(marker, LegacyNeoVmMarker, StringComparison.Ordinal))
             {
                 contractType = ContractType.NeoVM;
                 return true;
             }
 
-            if (string.Equals(marker, RiscvPolkaVmMarker, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(marker, RiscvPolkaVmMarker, StringComparison.Ordinal))
             {
                 contractType = ContractType.RiscV;
                 return true;

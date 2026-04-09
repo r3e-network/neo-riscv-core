@@ -87,7 +87,12 @@ namespace Neo.SmartContract
         /// <summary>
         /// Gets or sets the provider used to create the <see cref="ApplicationEngine"/>.
         /// </summary>
-        public static IApplicationEngineProvider? Provider { get; set; }
+        private static volatile IApplicationEngineProvider? _provider;
+        public static IApplicationEngineProvider? Provider
+        {
+            get => _provider;
+            set => _provider = value;
+        }
 
         /// <summary>
         /// Gets the descriptors of all interoperable services available in NEO.
@@ -707,6 +712,7 @@ namespace Neo.SmartContract
                     {
                         Id = contract.Id,
                         UpdateCounter = contract.UpdateCounter,
+                        Type = contract.Type,
                         Hash = contract.Hash,
                         Nef = contract.Nef,
                         Manifest = contract.Manifest
@@ -733,6 +739,12 @@ namespace Neo.SmartContract
         /// <returns>The loaded context.</returns>
         public ExecutionContext LoadScript(Script script, int rvcount = -1, int initialPosition = 0, Action<ExecutionContextState>? configureState = null)
         {
+            if (Provider is null && script.Length >= 4
+                && (byte)script[0] == 0x50 && (byte)script[1] == 0x56 && (byte)script[2] == 0x4D && (byte)script[3] == 0x00)
+            {
+                throw new InvalidOperationException("RISC-V contract execution requires the RISC-V adapter plugin.");
+            }
+
             // Create and configure context
             ExecutionContext context = CreateContext(script, rvcount, initialPosition);
             ExecutionContextState state = context.GetState<ExecutionContextState>();

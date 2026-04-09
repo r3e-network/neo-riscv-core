@@ -110,7 +110,6 @@ namespace Neo.SmartContract
             {
                 ["id"] = Id,
                 ["updatecounter"] = UpdateCounter,
-                ["type"] = Type.ToString(),
                 ["hash"] = Hash.ToString(),
                 ["nef"] = Nef.ToJson(),
                 ["manifest"] = Manifest.ToJson()
