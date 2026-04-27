@@ -48,17 +48,17 @@ namespace Neo.UnitTests.SmartContract.Manifest
         }
 
         [TestMethod]
-        public void FallsBackToPvmMagicForExistingRiscvContracts()
+        public void DefaultsToNeoVmWithoutMarkerEvenWhenScriptStartsWithPvmMagic()
         {
             var manifest = TestUtils.CreateDefaultManifest();
 
             Assert.AreEqual(
-                ContractType.RiscV,
+                ContractType.NeoVM,
                 ContractVmTypeResolver.Resolve(manifest, new byte[] { 0x50, 0x56, 0x4D, 0x00, 0x01 }));
         }
 
         [TestMethod]
-        public void RejectsUnknownManifestVmMarker()
+        public void IgnoresUnknownManifestVmMarkerAsCustomExtraData()
         {
             var manifest = TestUtils.CreateDefaultManifest();
             manifest.Extra = new JObject
@@ -66,7 +66,22 @@ namespace Neo.UnitTests.SmartContract.Manifest
                 ["vm"] = "unknown-vm"
             };
 
-            Assert.ThrowsExactly<FormatException>(() =>
+            Assert.AreEqual(
+                ContractType.NeoVM,
+                ContractVmTypeResolver.Resolve(manifest, new byte[] { (byte)VM.OpCode.PUSH1, (byte)VM.OpCode.RET }));
+        }
+
+        [TestMethod]
+        public void IgnoresNonStringManifestVmMarkerAsCustomExtraData()
+        {
+            var manifest = TestUtils.CreateDefaultManifest();
+            manifest.Extra = new JObject
+            {
+                ["vm"] = true
+            };
+
+            Assert.AreEqual(
+                ContractType.NeoVM,
                 ContractVmTypeResolver.Resolve(manifest, new byte[] { (byte)VM.OpCode.PUSH1, (byte)VM.OpCode.RET }));
         }
 

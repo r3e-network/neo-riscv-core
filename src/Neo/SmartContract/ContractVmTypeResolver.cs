@@ -31,7 +31,7 @@ namespace Neo.SmartContract
                 return contractType;
             }
 
-            return isRiscvBinary ? ContractType.RiscV : ContractType.NeoVM;
+            return ContractType.NeoVM;
         }
 
         private static bool TryResolveFromManifest(JObject? extra, out ContractType contractType)
@@ -39,12 +39,15 @@ namespace Neo.SmartContract
             contractType = ContractType.NeoVM;
 
             var vmToken = extra?["vm"];
-            if (vmToken is null || vmToken.ToString() == "null")
+            if (vmToken is null || vmToken is JToken.Null)
                 return false;
 
-            var marker = vmToken.GetString();
+            if (vmToken is not JString vmString)
+                return false;
+
+            var marker = vmString.Value;
             if (string.IsNullOrWhiteSpace(marker))
-                throw new FormatException("Manifest extra.vm cannot be empty.");
+                return false;
 
             if (string.Equals(marker, LegacyNeoVmMarker, StringComparison.Ordinal))
             {
@@ -58,10 +61,10 @@ namespace Neo.SmartContract
                 return true;
             }
 
-            throw new FormatException($"Unsupported manifest extra.vm marker '{marker}'.");
+            return false;
         }
 
-        private static bool IsRiscVBinary(ReadOnlyMemory<byte> script)
+        internal static bool IsRiscVBinary(ReadOnlyMemory<byte> script)
         {
             var span = script.Span;
             return span.Length >= 4

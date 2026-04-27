@@ -57,6 +57,19 @@ namespace Neo.UnitTests.IO.Caching
         }
 
         [TestMethod]
+        public void TestAddInternalRejectsParentDuplicate()
+        {
+            var myDataCache = new StoreCache(new MemoryStore());
+            myDataCache.Add(s_key1, s_value1);
+
+            var clonedCache = myDataCache.CloneCache();
+            clonedCache.Add(s_key1, s_value2);
+
+            Assert.ThrowsExactly<ArgumentException>(() => clonedCache.Commit());
+            Assert.IsTrue(myDataCache[s_key1].Value.Span.SequenceEqual(s_value1.Value.Span));
+        }
+
+        [TestMethod]
         public void TestDeleteInternal()
         {
             var myDataCache = new StoreCache(_store);

@@ -111,13 +111,19 @@ namespace Neo.Persistence
             {
                 if (_dictionary.TryGetValue(key, out var trackable))
                 {
-                    trackable.Item = value;
-                    trackable.State = trackable.State switch
+                    switch (trackable.State)
                     {
-                        TrackState.Deleted => TrackState.Changed,
-                        TrackState.NotFound => TrackState.Added,
-                        _ => throw new ArgumentException($"The element currently has state {trackable.State}")
-                    };
+                        case TrackState.Deleted:
+                            trackable.Item = value;
+                            trackable.State = TrackState.Changed;
+                            break;
+                        case TrackState.NotFound:
+                            trackable.Item = value;
+                            trackable.State = TrackState.Added;
+                            break;
+                        default:
+                            throw new ArgumentException($"The element currently has state {trackable.State}");
+                    }
                 }
                 else
                 {

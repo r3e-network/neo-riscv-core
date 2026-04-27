@@ -130,9 +130,6 @@ namespace Neo.SmartContract.Native
         }
 
         /// <summary>
-        /// Checks if a script is a PolkaVM RISC-V binary (starts with PVM\0 magic).
-        /// </summary>
-        /// <summary>
         /// Sets the minimum deployment fee for deploying a contract. Only committee members can call this method.
         /// </summary>
         /// <param name="engine">The engine used to write data.</param>
@@ -280,15 +277,7 @@ namespace Neo.SmartContract.Native
             var contractType = ContractVmTypeResolver.Resolve(parsedManifest, nef.Script);
             if (contractType == ContractType.RiscV && !engine.IsHardforkEnabled(Hardfork.HF_RiscV))
                 throw new InvalidOperationException("RISC-V contracts require HF_RiscV hardfork activation.");
-            if (contractType == ContractType.NeoVM)
-            {
-                Helper.Check(new Script(nef.Script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), parsedManifest.Abi);
-            }
-            else if (contractType == ContractType.RiscV)
-            {
-                if (nef.Script.Length < 8)
-                    throw new FormatException("RISC-V contract script is too short to be a valid PolkaVM binary.");
-            }
+            ValidateContractPayload(engine, contractType, nef.Script, parsedManifest);
             UInt160 hash = Helper.GetContractHash(tx.Sender, nef.CheckSum, parsedManifest.Name);
 
             if (Policy.IsBlocked(engine.SnapshotCache, hash))
@@ -388,10 +377,17 @@ namespace Neo.SmartContract.Native
             }
 
             var candidateType = ContractVmTypeResolver.Resolve(candidateManifest, candidateNef.Script);
-            if (candidateType == ContractType.NeoVM)
-            {
-                Helper.Check(new Script(candidateNef.Script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), candidateManifest.Abi);
-            }
+            // Match the Deploy-side HF_RiscV gate on Update so RISC-V contracts cannot be
+            // introduced pre-activation by going through the Update path.
+            if (candidateType == ContractType.RiscV && !engine.IsHardforkEnabled(Hardfork.HF_RiscV))
+                throw new InvalidOperationException("RISC-V contracts require HF_RiscV hardfork activation.");
+            // Pin the execution backend across updates so a deployed contract cannot silently
+            // switch between NeoVM and RISC-V after deployment — the backend is part of the
+            // contract's consensus-relevant identity.
+            if (engine.IsHardforkEnabled(Hardfork.HF_RiscV) && candidateType != contract.Type)
+                throw new InvalidOperationException(
+                    $"Contract execution backend cannot change on update: existing={contract.Type}, candidate={candidateType}.");
+            ValidateContractPayload(engine, candidateType, candidateNef.Script, candidateManifest);
 
             contract.Nef = candidateNef;
             contract.Manifest = candidateManifest;
@@ -399,6 +395,21 @@ namespace Neo.SmartContract.Native
             // Increase update counter
             contract.UpdateCounter++;
             return OnDeployAsync(engine, contract, data, true);
+        }
+
+        private static void ValidateContractPayload(ApplicationEngine engine, ContractType contractType, ReadOnlyMemory<byte> script, ContractManifest manifest)
+        {
+            if (contractType == ContractType.NeoVM)
+            {
+                Helper.Check(new Script(script, engine.IsHardforkEnabled(Hardfork.HF_Basilisk)), manifest.Abi);
+                return;
+            }
+
+            if (!ContractVmTypeResolver.IsRiscVBinary(script))
+                throw new FormatException("RISC-V contract script must be a PolkaVM binary.");
+
+            if (script.Length < 8)
+                throw new FormatException("RISC-V contract script is too short to be a valid PolkaVM binary.");
         }
 
         /// <summary>
