@@ -576,6 +576,16 @@ namespace Neo.SmartContract
             }
         }
 
+        protected void RollbackContextNotifications(ExecutionContext context)
+        {
+            ExecutionContextState state = context.GetState<ExecutionContextState>();
+            if (state.NotificationCount == 0 || notifications is null)
+                return;
+
+            notifications.RemoveRange(notifications.Count - state.NotificationCount, state.NotificationCount);
+            state.NotificationCount = 0;
+        }
+
         protected override void ContextUnloaded(ExecutionContext context)
         {
             base.ContextUnloaded(context);
@@ -600,8 +610,7 @@ namespace Neo.SmartContract
                 }
                 else
                 {
-                    if (state.NotificationCount > 0)
-                        notifications!.RemoveRange(notifications.Count - state.NotificationCount, state.NotificationCount);
+                    RollbackContextNotifications(context);
                 }
             }
             Diagnostic?.ContextUnloaded(context);
