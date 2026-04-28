@@ -35,8 +35,20 @@ namespace Neo.UnitTests.SmartContract
 
             if (!string.IsNullOrWhiteSpace(_previousLibraryPath))
             {
-                ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
+                try
+                {
+                    ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or TargetInvocationException)
+                {
+                    ApplicationEngine.Provider = new NeoVMHostApplicationEngineProvider();
+                }
             }
+            else
+            {
+                ApplicationEngine.Provider = new NeoVMHostApplicationEngineProvider();
+            }
+
             _snapshotCache = TestBlockchain.GetSystem().GetTestSnapshotCache();
             ApplicationEngine.Provider = null;
             RiscvAdapterTestSupport.ResetProviderForTesting();
@@ -67,11 +79,27 @@ namespace Neo.UnitTests.SmartContract
             Environment.SetEnvironmentVariable("NEO_RISCV_HOST_LIB", null);
             RiscvAdapterTestSupport.ResetProviderForTesting();
             var snapshot = _snapshotCache.CloneCache();
-            // Without a provider, Create falls back to standard ApplicationEngine
-            var engine = ApplicationEngine.Create(TriggerType.Application,
+            // Host-side NeoVM fallback is disabled by design: RISC-V replaces NeoVM,
+            // and Create must refuse to run without an explicitly configured provider.
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
+                ApplicationEngine.Create(TriggerType.Application,
+                    null, snapshot, gas: 0, settings: TestProtocolSettings.Default));
+        }
+
+        [TestMethod]
+        public void TestNeoVMHostApplicationEngineProvider_CreatesPureManagedEngine()
+        {
+            ApplicationEngine.Provider = new NeoVMHostApplicationEngineProvider();
+            var snapshot = _snapshotCache.CloneCache();
+
+            using var appEngine = ApplicationEngine.Create(TriggerType.Application,
                 null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
-            Assert.IsNotNull(engine);
-            Assert.IsTrue(engine is ApplicationEngine);
+
+            // The host provider returns a plain ApplicationEngine, not the RiscvApplicationEngine
+            // subclass — no native library is loaded, the built-in NeoVM interpreter runs instead.
+            Assert.IsNotNull(appEngine);
+            Assert.IsInstanceOfType<ApplicationEngine>(appEngine);
+            Assert.AreEqual("NeoVMHostApplicationEngine", appEngine.GetType().Name);
         }
 
         [TestMethod]
