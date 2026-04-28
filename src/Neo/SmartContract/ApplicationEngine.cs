@@ -615,7 +615,8 @@ namespace Neo.SmartContract
 
         /// <summary>
         /// Use the loaded <see cref="IApplicationEngineProvider"/> to create a new instance of the <see cref="ApplicationEngine"/> class.
-        /// If no <see cref="IApplicationEngineProvider"/> is loaded, the constructor of <see cref="ApplicationEngine"/> will be called.
+        /// The provider is required; configure the RISC-V provider for normal execution or
+        /// <see cref="NeoVMHostApplicationEngineProvider"/> for host-side NeoVM compatibility tooling.
         /// </summary>
         /// <param name="trigger">The trigger of the execution.</param>
         /// <param name="container">The container of the script.</param>
@@ -637,8 +638,11 @@ namespace Neo.SmartContract
             settings ??= ProtocolSettings.Default;
             // Adjust jump table according persistingBlock
             var jumpTable = settings.IsHardforkEnabled(Hardfork.HF_Echidna, index) ? DefaultJumpTable : NotEchidnaJumpTable;
-            var engine = Provider?.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable)
-                  ?? new ApplicationEngine(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
+            var provider = Provider
+                ?? throw new InvalidOperationException(
+                    "ApplicationEngine.Provider is not configured. Host-side NeoVM fallback is disabled; " +
+                    "configure the RISC-V application engine provider before executing contracts.");
+            var engine = provider.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
 
             InstanceHandler?.Invoke(engine);
             return engine;
