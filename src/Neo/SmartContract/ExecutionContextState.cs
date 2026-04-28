@@ -41,6 +41,11 @@ namespace Neo.SmartContract
         public ContractState? Contract { get; set; }
 
         /// <summary>
+        /// The ABI method loaded into the current context, when execution came from a deployed contract.
+        /// </summary>
+        public string? MethodName { get; set; }
+
+        /// <summary>
         /// The <see cref="SmartContract.CallFlags"/> of the current context.
         /// </summary>
         public CallFlags CallFlags { get; set; } = CallFlags.All;

@@ -717,13 +717,16 @@ namespace Neo.SmartContract
                         Nef = contract.Nef,
                         Manifest = contract.Manifest
                     };
+                    p.MethodName = method.Name;
                 });
 
             // Call initialization
             var init = contract.Manifest.Abi.GetMethod(ContractBasicMethod.Initialize, ContractBasicMethod.InitializePCount);
             if (init is not null)
             {
-                LoadContext(context.Clone(init.Offset));
+                var initContext = context.Clone(init.Offset);
+                initContext.GetState<ExecutionContextState>().MethodName = init.Name;
+                LoadContext(initContext);
             }
 
             return context;
