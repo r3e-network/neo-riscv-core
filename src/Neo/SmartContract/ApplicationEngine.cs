@@ -635,8 +635,8 @@ namespace Neo.SmartContract
 
         /// <summary>
         /// Use the loaded <see cref="IApplicationEngineProvider"/> to create a new instance of the <see cref="ApplicationEngine"/> class.
-        /// The provider is required; configure the RISC-V provider for normal execution or
-        /// <see cref="NeoVMHostApplicationEngineProvider"/> for host-side NeoVM compatibility tooling.
+        /// The provider is required; configure the RISC-V provider for normal execution.
+        /// <see cref="NeoVMHostApplicationEngineProvider"/> is reserved for reference tooling and tests.
         /// </summary>
         /// <param name="trigger">The trigger of the execution.</param>
         /// <param name="container">The container of the script.</param>
@@ -741,7 +741,7 @@ namespace Neo.SmartContract
             phaseStart = BeginLoadContractProfilePhase();
             ExecutionContext context = LoadScript(contract.Script,
                 rvcount: method.ReturnType == ContractParameterType.Void ? 0 : 1,
-                initialPosition: method.Offset,
+                initialPosition: contract.Type == ContractType.RiscV ? 0 : method.Offset,
                 configureState: p =>
                 {
                     p.CallFlags = callFlags;
@@ -797,11 +797,12 @@ namespace Neo.SmartContract
 
         private static bool IsRiscvBinaryScript(Script script)
         {
-            return script.Length >= 4
-                && (byte)script[0] == 0x50
-                && (byte)script[1] == 0x56
-                && (byte)script[2] == 0x4D
-                && (byte)script[3] == 0x00;
+            var bytes = ((ReadOnlyMemory<byte>)script).Span;
+            return bytes.Length >= 4
+                && bytes[0] == 0x50
+                && bytes[1] == 0x56
+                && bytes[2] == 0x4D
+                && bytes[3] == 0x00;
         }
 
         /// <summary>

@@ -100,7 +100,7 @@ public class UT_RiscvAdapterTestSupport
     }
 
     [TestMethod]
-    public void CanUseAdapter_UsesBundledPluginLibrary_WhenHostEnvVarPointsToAnotherExistingFile()
+    public void CanUseAdapter_UsesConfiguredHostLibrary_WhenHostEnvVarPointsToExistingFile()
     {
         var adapterDll = Path.Combine(AppContext.BaseDirectory, "Plugins", "Neo.Riscv.Adapter", "Neo.Riscv.Adapter.dll");
         if (!File.Exists(adapterDll))
@@ -119,7 +119,6 @@ public class UT_RiscvAdapterTestSupport
         var hostLibPath = Path.Combine(pluginRoot, GetPlatformFileName());
         var externalRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         var externalPath = Path.Combine(externalRoot, GetPlatformFileName());
-        var expectedPath = File.Exists(stagedHostLibPath) ? stagedHostLibPath : hostLibPath;
 
         try
         {
@@ -134,7 +133,7 @@ public class UT_RiscvAdapterTestSupport
             }
 
             Assert.IsTrue(RiscvAdapterTestSupport.CanUseAdapter());
-            Assert.AreEqual(expectedPath, RiscvAdapterTestSupport.ResolveProviderLibraryPath());
+            Assert.AreEqual(externalPath, RiscvAdapterTestSupport.ResolveProviderLibraryPath());
         }
         finally
         {

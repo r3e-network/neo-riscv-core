@@ -29,8 +29,8 @@ public static class RiscvTestEnvironment
             return;
         }
 
-        var adapterDll = ResolveSiblingFile(baseDirectory, "neo-riscv-vm", "compat", "Neo.Riscv.Adapter", "bin", "Debug", "net10.0", "Neo.Riscv.Adapter.dll")
-            ?? ResolveSiblingFile(baseDirectory, "neo-riscv-vm", "compat", "Neo.Riscv.Adapter", "bin", "Release", "net10.0", "Neo.Riscv.Adapter.dll");
+        var adapterDll = ResolveSiblingFile(baseDirectory, "neo-riscv-vm", "dotnet", "Neo.Riscv.Adapter", "bin", "Debug", "net10.0", "Neo.Riscv.Adapter.dll")
+            ?? ResolveSiblingFile(baseDirectory, "neo-riscv-vm", "dotnet", "Neo.Riscv.Adapter", "bin", "Release", "net10.0", "Neo.Riscv.Adapter.dll");
         if (File.Exists(adapterDll))
             Environment.SetEnvironmentVariable("NEO_RISCV_ADAPTER_DLL", adapterDll);
 

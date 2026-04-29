@@ -17,11 +17,9 @@ namespace Neo.SmartContract
     /// host-side NeoVM <see cref="ApplicationEngine"/> directly - no native
     /// library, no RISC-V guest, no plugin dependency.
     ///
-    /// Intended for tooling, SDK consumers, and test harnesses that need to
-    /// satisfy <see cref="ApplicationEngine.Create"/>'s required-provider
-    /// contract but do not want to load the native RISC-V adapter. Production
-    /// nodes should continue to use the RISC-V adapter provider for state-root
-    /// compatibility with mainnet.
+    /// Intended only for reference tooling and tests that compare RiscvVM
+    /// compatibility behavior against the managed NeoVM implementation.
+    /// Production execution must use the RISC-V adapter provider.
     /// </summary>
     public sealed class NeoVMHostApplicationEngineProvider : IApplicationEngineProvider
     {
