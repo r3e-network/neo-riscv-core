@@ -127,29 +127,6 @@ namespace Neo.UnitTests.SmartContract
         }
 
         [TestMethod]
-        public void TestContract_Create_RiscvManifestMarkerSetsContractType()
-        {
-            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
-            var nef = new NefFile()
-            {
-                Script = new byte[] { 0x50, 0x56, 0x4D, 0x00, 0x01, 0x00, 0x00, 0x00 },
-                Source = string.Empty,
-                Compiler = "",
-                Tokens = []
-            };
-            nef.CheckSum = NefFile.ComputeChecksum(nef);
-
-            var manifest = TestUtils.CreateDefaultManifest();
-            manifest.Extra = new JObject
-            {
-                ["vm"] = ContractVmTypeResolver.RiscvPolkaVmMarker
-            };
-
-            var contract = snapshotCache.DeployContract(UInt160.Zero, nef.ToArray(), manifest.ToJson().ToByteArray(false));
-            Assert.AreEqual(ContractType.RiscV, contract.Type);
-        }
-
-        [TestMethod]
         public void TestContract_Update()
         {
             var snapshotCache = TestBlockchain.GetTestSnapshotCache();
@@ -218,6 +195,46 @@ namespace Neo.UnitTests.SmartContract
 
             Assert.ThrowsExactly<FormatException>(() =>
                 snapshotCache.UpdateContract(state.Hash, nef.ToArray(), manifest.ToJson().ToByteArray(false)));
+        }
+
+        [TestMethod]
+        public void TestContract_Update_RejectsExecutionBackendFlip()
+        {
+            var snapshotCache = TestBlockchain.GetTestSnapshotCache();
+            var neoVmNef = new NefFile()
+            {
+                Script = new[] { (byte)OpCode.RET },
+                Source = string.Empty,
+                Compiler = "",
+                Tokens = [],
+            };
+            neoVmNef.CheckSum = NefFile.ComputeChecksum(neoVmNef);
+
+            var manifest = TestUtils.CreateDefaultManifest();
+            var state = snapshotCache.DeployContract(UInt160.Zero, neoVmNef.ToArray(), manifest.ToJson().ToByteArray(false));
+            Assert.AreEqual(ContractType.NeoVM, state.Type);
+
+            var pvmNef = new NefFile()
+            {
+                Script = new byte[] { 0x50, 0x56, 0x4D, 0x00, 0x01, 0x00, 0x00, 0x00 },
+                Source = string.Empty,
+                Compiler = "",
+                Tokens = [],
+            };
+            pvmNef.CheckSum = NefFile.ComputeChecksum(pvmNef);
+
+            manifest.Extra = new JObject
+            {
+                ["vm"] = ContractVmTypeResolver.RiscvPolkaVmMarker
+            };
+
+            var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
+                snapshotCache.UpdateContract(state.Hash, pvmNef.ToArray(), manifest.ToJson().ToByteArray(false)));
+            Assert.Contains("cannot change", ex.Message);
+
+            var reread = NativeContract.ContractManagement.GetContract(snapshotCache, state.Hash);
+            Assert.AreEqual(ContractType.NeoVM, reread.Type);
+            Assert.AreEqual(0, reread.UpdateCounter);
         }
 
         [TestMethod]

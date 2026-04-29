@@ -103,6 +103,36 @@ namespace Neo.UnitTests.SmartContract
         }
 
         [TestMethod]
+        public void LoadScriptRejectsRiscvBinaryWhenNeoVmProviderConfigured()
+        {
+            ApplicationEngine.Provider = new NeoVMHostApplicationEngineProvider();
+            var snapshot = _snapshotCache.CloneCache();
+
+            using var appEngine = ApplicationEngine.Create(TriggerType.Application,
+                null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
+
+            var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
+                appEngine.LoadScript(new byte[] { 0x50, 0x56, 0x4d, 0x00, 0x00 }));
+            Assert.Contains("RISC-V adapter", ex.Message);
+        }
+
+        [TestMethod]
+        public void LoadScriptRiscvCapabilityIsCapturedAtEngineCreation()
+        {
+            ApplicationEngine.Provider = new NeoVMHostApplicationEngineProvider();
+            var snapshot = _snapshotCache.CloneCache();
+
+            using var appEngine = ApplicationEngine.Create(TriggerType.Application,
+                null, snapshot, gas: 0, settings: TestProtocolSettings.Default);
+
+            ApplicationEngine.Provider = new RiscvMarkerProvider();
+
+            var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
+                appEngine.LoadScript(new byte[] { 0x50, 0x56, 0x4d, 0x00, 0x00 }));
+            Assert.Contains("RISC-V adapter", ex.Message);
+        }
+
+        [TestMethod]
         public void TestInitNonce()
         {
             var block = new Block
@@ -128,6 +158,15 @@ namespace Neo.UnitTests.SmartContract
         }
 
         class TestProvider : IApplicationEngineProvider
+        {
+            public ApplicationEngine Create(TriggerType trigger, IVerifiable container, DataCache snapshot,
+                Block persistingBlock, ProtocolSettings settings, long gas, IDiagnostic diagnostic, JumpTable jumpTable)
+            {
+                return new TestEngine(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
+            }
+        }
+
+        class RiscvMarkerProvider : IRiscvApplicationEngineProvider
         {
             public ApplicationEngine Create(TriggerType trigger, IVerifiable container, DataCache snapshot,
                 Block persistingBlock, ProtocolSettings settings, long gas, IDiagnostic diagnostic, JumpTable jumpTable)

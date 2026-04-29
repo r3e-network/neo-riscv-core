@@ -34,23 +34,31 @@
 
   <PropertyGroup>
     <RiscvAdapterDll>..\..\..\neo-riscv-vm\compat\Neo.Riscv.Adapter\bin\$(Configuration)\net10.0\Neo.Riscv.Adapter.dll</RiscvAdapterDll>
-    <RiscvHostLibRelease>..\..\..\neo-riscv-vm\target\release\libneo_riscv_host.so</RiscvHostLibRelease>
-    <RiscvHostLibDebug>..\..\..\neo-riscv-vm\target\debug\libneo_riscv_host.so</RiscvHostLibDebug>
-    <RiscvAdapterPluginDir>$(OutDir)Plugins\Neo.Riscv.Adapter</RiscvAdapterPluginDir>
+    <RiscvAdapterDepsJson>..\..\..\neo-riscv-vm\compat\Neo.Riscv.Adapter\bin\$(Configuration)\net10.0\Neo.Riscv.Adapter.deps.json</RiscvAdapterDepsJson>
+    <RiscvHostLibFileName Condition="$([MSBuild]::IsOSPlatform('Windows'))">neo_riscv_host.dll</RiscvHostLibFileName>
+    <RiscvHostLibFileName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libneo_riscv_host.dylib</RiscvHostLibFileName>
+    <RiscvHostLibFileName Condition="'$(RiscvHostLibFileName)' == ''">libneo_riscv_host.so</RiscvHostLibFileName>
+    <RiscvHostLibRelease>..\..\..\neo-riscv-vm\target\release\$(RiscvHostLibFileName)</RiscvHostLibRelease>
+    <RiscvHostLibDebug>..\..\..\neo-riscv-vm\target\debug\$(RiscvHostLibFileName)</RiscvHostLibDebug>
+    <RiscvAdapterPluginDir>$(TargetDir)Plugins/Neo.Riscv.Adapter</RiscvAdapterPluginDir>
   </PropertyGroup>
 
   <Target Name="StageRiscvAdapterPluginForCoreTests" AfterTargets="Build">
     <MakeDir Directories="$(RiscvAdapterPluginDir)" />
     <Copy SourceFiles="$(RiscvAdapterDll)"
-          DestinationFiles="$(RiscvAdapterPluginDir)\Neo.Riscv.Adapter.dll"
+          DestinationFiles="$(RiscvAdapterPluginDir)/Neo.Riscv.Adapter.dll"
           SkipUnchangedFiles="true"
           Condition="Exists('$(RiscvAdapterDll)')" />
+    <Copy SourceFiles="$(RiscvAdapterDepsJson)"
+          DestinationFiles="$(RiscvAdapterPluginDir)/Neo.Riscv.Adapter.deps.json"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(RiscvAdapterDepsJson)')" />
     <Copy SourceFiles="$(RiscvHostLibRelease)"
-          DestinationFiles="$(RiscvAdapterPluginDir)\libneo_riscv_host.so"
+          DestinationFiles="$(RiscvAdapterPluginDir)/$(RiscvHostLibFileName)"
           SkipUnchangedFiles="true"
           Condition="Exists('$(RiscvHostLibRelease)')" />
     <Copy SourceFiles="$(RiscvHostLibDebug)"
-          DestinationFiles="$(RiscvAdapterPluginDir)\libneo_riscv_host.so"
+          DestinationFiles="$(RiscvAdapterPluginDir)/$(RiscvHostLibFileName)"
           SkipUnchangedFiles="true"
           Condition="!Exists('$(RiscvHostLibRelease)') and Exists('$(RiscvHostLibDebug)')" />
   </Target>

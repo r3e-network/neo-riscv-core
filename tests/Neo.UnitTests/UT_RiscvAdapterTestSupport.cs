@@ -19,6 +19,45 @@ namespace Neo.UnitTests;
 public class UT_RiscvAdapterTestSupport
 {
     [TestMethod]
+    public void CanUseAdapter_UsesStagedPluginBundle_WhenEnvVarsUnset()
+    {
+        var previousAdapterDll = Environment.GetEnvironmentVariable("NEO_RISCV_ADAPTER_DLL");
+        var previousHostLib = Environment.GetEnvironmentVariable("NEO_RISCV_HOST_LIB");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("NEO_RISCV_ADAPTER_DLL", null);
+            Environment.SetEnvironmentVariable("NEO_RISCV_HOST_LIB", null);
+            RiscvAdapterTestSupport.ResetProviderForTesting();
+
+            Assert.IsTrue(
+                File.Exists(RiscvAdapterTestSupport.StagedAdapterAssemblyPath),
+                $"Neo.Riscv.Adapter.dll is not staged at {RiscvAdapterTestSupport.StagedAdapterAssemblyPath}.");
+            Assert.IsTrue(
+                File.Exists(RiscvAdapterTestSupport.StagedAdapterDepsJsonPath),
+                $"Neo.Riscv.Adapter.deps.json is not staged at {RiscvAdapterTestSupport.StagedAdapterDepsJsonPath}.");
+            if (!File.Exists(RiscvAdapterTestSupport.StagedHostLibraryPath))
+                Assert.Inconclusive(
+                    $"RISC-V host library is not staged at {RiscvAdapterTestSupport.StagedHostLibraryPath}; build neo-riscv-host before running staged adapter bundle tests.");
+
+            Assert.AreEqual(
+                RiscvAdapterTestSupport.StagedAdapterAssemblyPath,
+                RiscvAdapterTestSupport.ResolveAdapterAssemblyPathForTesting());
+            Assert.IsTrue(RiscvAdapterTestSupport.CanUseAdapter(), RiscvAdapterTestSupport.AdapterUnavailableReason());
+            Assert.AreEqual(
+                RiscvAdapterTestSupport.StagedHostLibraryPath,
+                RiscvAdapterTestSupport.ResolveProviderLibraryPath());
+            Assert.IsNotNull(RiscvAdapterTestSupport.ResolveProvider());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NEO_RISCV_ADAPTER_DLL", previousAdapterDll);
+            Environment.SetEnvironmentVariable("NEO_RISCV_HOST_LIB", previousHostLib);
+            RiscvAdapterTestSupport.ResetProviderForTesting();
+        }
+    }
+
+    [TestMethod]
     public void CanUseAdapter_UsesResolvedPluginLibraryPath_WhenHostEnvVarUnset()
     {
         var adapterDll = Path.Combine(AppContext.BaseDirectory, "Plugins", "Neo.Riscv.Adapter", "Neo.Riscv.Adapter.dll");

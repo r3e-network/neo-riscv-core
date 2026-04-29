@@ -91,10 +91,26 @@ namespace Neo.UnitTests
             if (ApplicationEngine.Provider is not null)
                 return;
 
-            if (!RiscvAdapterTestSupport.CanUseAdapter())
+            if (RiscvAdapterTestSupport.CanUseAdapter() &&
+                !string.Equals(
+                    Environment.GetEnvironmentVariable("NEO_RISCV_DISABLE_CORE_TEST_PROVIDER"),
+                    "1",
+                    StringComparison.Ordinal))
+            {
+                ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
                 return;
+            }
 
-            ApplicationEngine.Provider = RiscvAdapterTestSupport.ResolveProvider();
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("NEO_RISCV_ENABLE_CORE_TEST_PROVIDER"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"NEO_RISCV_ENABLE_CORE_TEST_PROVIDER=1 requires the RISC-V adapter. {RiscvAdapterTestSupport.AdapterUnavailableReason()}");
+            }
+
+            ApplicationEngine.Provider = new NeoVMHostApplicationEngineProvider();
         }
     }
 }

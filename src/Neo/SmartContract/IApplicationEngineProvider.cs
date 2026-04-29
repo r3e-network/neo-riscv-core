@@ -34,4 +34,18 @@ namespace Neo.SmartContract
         /// <returns>The engine instance created.</returns>
         ApplicationEngine Create(TriggerType trigger, IVerifiable? container, DataCache snapshot, Block? persistingBlock, ProtocolSettings settings, long gas, IDiagnostic? diagnostic, JumpTable jumpTable);
     }
+
+    /// <summary>
+    /// Identifies providers that execute RISC-V/PVM contract binaries.
+    /// </summary>
+    public interface IRiscvApplicationEngineProvider : IApplicationEngineProvider
+    {
+    }
+
+    /// <summary>
+    /// Identifies engines that execute RISC-V/PVM contract binaries.
+    /// </summary>
+    public interface IRiscvApplicationEngine
+    {
+    }
 }

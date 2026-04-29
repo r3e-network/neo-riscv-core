@@ -50,7 +50,6 @@ namespace Neo.UnitTests.SmartContract
             if (s_adapterAvailable)
             {
                 s_provider = RiscvAdapterTestSupport.CreateProvider(libraryPath);
-                ApplicationEngine.Provider = s_provider;
             }
         }
 
@@ -67,6 +66,7 @@ namespace Neo.UnitTests.SmartContract
         {
             if (!s_adapterAvailable)
                 Assert.Inconclusive(RiscvAdapterTestSupport.AdapterUnavailableReason());
+            ApplicationEngine.Provider = s_provider;
         }
 
         private static void AssertHalt(ApplicationEngine engine)
@@ -951,8 +951,9 @@ namespace Neo.UnitTests.SmartContract
 
             Assert.AreEqual(VMState.HALT, engine.Execute());
             var context = engine.ResultStack.Pop();
-            Assert.IsInstanceOfType(context, typeof(Neo.VM.Types.Array));
-            Assert.AreEqual(true, ((Neo.VM.Types.Array)context)[1].GetBoolean());
+            Assert.IsInstanceOfType(context, typeof(InteropInterface));
+            Assert.IsInstanceOfType(((InteropInterface)context).GetInterface<object>(), typeof(StorageContext));
+            Assert.IsTrue(((StorageContext)((InteropInterface)context).GetInterface<object>()!).IsReadOnly);
         }
 
         [TestMethod]

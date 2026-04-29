@@ -26,6 +26,7 @@ namespace Neo.UnitTests.SmartContract
         [TestInitialize]
         public void TestSetup()
         {
+            ApplicationEngine.Provider = new NeoVMHostApplicationEngineProvider();
             _system = TestBlockchain.GetSystem();
             _snapshotCache = _system.GetSnapshotCache();
         }

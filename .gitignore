@@ -268,3 +268,4 @@ launchSettings.json
 **/BenchmarkDotNet.Artifacts/
 /src/Neo.CLI/neo-cli/
 **/localnet_nodes/
+.omx/

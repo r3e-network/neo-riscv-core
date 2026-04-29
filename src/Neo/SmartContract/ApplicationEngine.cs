@@ -78,6 +78,7 @@ namespace Neo.SmartContract
         private List<IDisposable>? disposables;
         private readonly Dictionary<UInt160, int> invocationCounter = new();
         private readonly Dictionary<ExecutionContext, ContractTaskAwaiter> contractTasks = new();
+        private bool supportsRiscvBinaryScript;
         // In the unit of picoGAS, 1 picoGAS = 1e-12 GAS
         private readonly BigInteger _execFeeFactor;
         // In the unit of datoshi, 1 datoshi = 1e-8 GAS
@@ -378,6 +379,7 @@ namespace Neo.SmartContract
 
         private ExecutionContext CallContractInternal(ContractState contract, ContractMethodDescriptor method, CallFlags flags, bool hasReturnValue, IReadOnlyList<StackItem> args)
         {
+            var phaseStart = BeginLoadContractProfilePhase();
             if (NativeContract.Policy.IsBlocked(SnapshotCache, contract.Hash))
                 throw new InvalidOperationException($"The contract {contract.Hash} has been blocked.");
 
@@ -395,7 +397,9 @@ namespace Neo.SmartContract
                 if (executingContract?.CanCall(contract, method.Name) == false)
                     throw new InvalidOperationException($"Cannot Call Method {method.Name} Of Contract {contract.Hash} From Contract {CurrentScriptHash}");
             }
+            RecordLoadContractProfilePhase("call_contract_prechecks", phaseStart);
 
+            phaseStart = BeginLoadContractProfilePhase();
             if (invocationCounter.TryGetValue(contract.Hash, out var counter))
             {
                 invocationCounter[contract.Hash] = counter + 1;
@@ -404,25 +408,32 @@ namespace Neo.SmartContract
             {
                 invocationCounter[contract.Hash] = 1;
             }
+            RecordLoadContractProfilePhase("call_contract_invocation_counter", phaseStart);
 
             CallFlags callingFlags = state.CallFlags;
 
             if (args.Count != method.Parameters.Length) throw new InvalidOperationException($"Method {method} Expects {method.Parameters.Length} Arguments But Receives {args.Count} Arguments");
             if (hasReturnValue ^ (method.ReturnType != ContractParameterType.Void)) throw new InvalidOperationException("The return value type does not match.");
 
+            phaseStart = BeginLoadContractProfilePhase();
             var contextNew = LoadContract(contract, method, flags & callingFlags);
+            RecordLoadContractProfilePhase("call_contract_load_contract", phaseStart);
             state = contextNew.GetState<ExecutionContextState>();
             state.CallingContext = currentContext;
             // Check whitelist
+            phaseStart = BeginLoadContractProfilePhase();
             if (IsHardforkEnabled(Hardfork.HF_Faun) &&
                 NativeContract.Policy.IsWhitelistFeeContract(SnapshotCache, contract.Hash, method, out var fixedFee))
             {
                 AddFee(fixedFee.Value * FeeFactor);
                 state.WhiteListed = true;
             }
+            RecordLoadContractProfilePhase("call_contract_whitelist", phaseStart);
 
+            phaseStart = BeginLoadContractProfilePhase();
             for (int i = args.Count - 1; i >= 0; i--)
                 contextNew.EvaluationStack.Push(args[i]);
+            RecordLoadContractProfilePhase("call_contract_push_args", phaseStart);
 
             return contextNew;
         }
@@ -652,6 +663,7 @@ namespace Neo.SmartContract
                     "ApplicationEngine.Provider is not configured. Host-side NeoVM fallback is disabled; " +
                     "configure the RISC-V application engine provider before executing contracts.");
             var engine = provider.Create(trigger, container, snapshot, persistingBlock, settings, gas, diagnostic, jumpTable);
+            engine.supportsRiscvBinaryScript = provider is IRiscvApplicationEngineProvider || engine is IRiscvApplicationEngine;
 
             InstanceHandler?.Invoke(engine);
             return engine;
@@ -714,6 +726,19 @@ namespace Neo.SmartContract
         /// <returns>The loaded context.</returns>
         public ExecutionContext LoadContract(ContractState contract, ContractMethodDescriptor method, CallFlags callFlags)
         {
+            var phaseStart = BeginLoadContractProfilePhase();
+            var executionContractState = new ContractState
+            {
+                Id = contract.Id,
+                UpdateCounter = contract.UpdateCounter,
+                Type = contract.Type,
+                Hash = contract.Hash,
+                Nef = contract.Nef,
+                Manifest = contract.Manifest
+            };
+            RecordLoadContractProfilePhase("clone_contract_state", phaseStart);
+
+            phaseStart = BeginLoadContractProfilePhase();
             ExecutionContext context = LoadScript(contract.Script,
                 rvcount: method.ReturnType == ContractParameterType.Void ? 0 : 1,
                 initialPosition: method.Offset,
@@ -721,25 +746,22 @@ namespace Neo.SmartContract
                 {
                     p.CallFlags = callFlags;
                     p.ScriptHash = contract.Hash;
-                    p.Contract = new ContractState
-                    {
-                        Id = contract.Id,
-                        UpdateCounter = contract.UpdateCounter,
-                        Type = contract.Type,
-                        Hash = contract.Hash,
-                        Nef = contract.Nef,
-                        Manifest = contract.Manifest
-                    };
+                    p.Contract = executionContractState;
                     p.MethodName = method.Name;
                 });
+            RecordLoadContractProfilePhase("load_script", phaseStart);
 
             // Call initialization
+            phaseStart = BeginLoadContractProfilePhase();
             var init = contract.Manifest.Abi.GetMethod(ContractBasicMethod.Initialize, ContractBasicMethod.InitializePCount);
+            RecordLoadContractProfilePhase("lookup_initialize", phaseStart);
             if (init is not null)
             {
+                phaseStart = BeginLoadContractProfilePhase();
                 var initContext = context.Clone(init.Offset);
                 initContext.GetState<ExecutionContextState>().MethodName = init.Name;
                 LoadContext(initContext);
+                RecordLoadContractProfilePhase("load_initialize_context", phaseStart);
             }
 
             return context;
@@ -755,8 +777,9 @@ namespace Neo.SmartContract
         /// <returns>The loaded context.</returns>
         public ExecutionContext LoadScript(Script script, int rvcount = -1, int initialPosition = 0, Action<ExecutionContextState>? configureState = null)
         {
-            if (Provider is null && script.Length >= 4
-                && (byte)script[0] == 0x50 && (byte)script[1] == 0x56 && (byte)script[2] == 0x4D && (byte)script[3] == 0x00)
+            if (IsRiscvBinaryScript(script)
+                && !supportsRiscvBinaryScript
+                && this is not IRiscvApplicationEngine)
             {
                 throw new InvalidOperationException("RISC-V contract execution requires the RISC-V adapter plugin.");
             }
@@ -770,6 +793,15 @@ namespace Neo.SmartContract
             // Load context
             LoadContext(context);
             return context;
+        }
+
+        private static bool IsRiscvBinaryScript(Script script)
+        {
+            return script.Length >= 4
+                && (byte)script[0] == 0x50
+                && (byte)script[1] == 0x56
+                && (byte)script[2] == 0x4D
+                && (byte)script[3] == 0x00;
         }
 
         /// <summary>

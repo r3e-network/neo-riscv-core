@@ -56,6 +56,20 @@ internal static class RiscvAdapterTestSupport
         return string.Equals(engine.GetType().FullName, EngineTypeName, StringComparison.Ordinal);
     }
 
+    internal static string StagedPluginDirectory =>
+        Path.Combine(AppContext.BaseDirectory, "Plugins", AdapterAssemblyName);
+
+    internal static string StagedAdapterAssemblyPath =>
+        Path.Combine(StagedPluginDirectory, AdapterAssemblyFileName);
+
+    internal static string StagedAdapterDepsJsonPath =>
+        Path.Combine(StagedPluginDirectory, AdapterAssemblyName + ".deps.json");
+
+    internal static string StagedHostLibraryPath =>
+        Path.Combine(StagedPluginDirectory, GetPlatformFileName());
+
+    internal static string? ResolveAdapterAssemblyPathForTesting() => ResolveAdapterAssemblyPath();
+
     internal static IApplicationEngineProvider CreateProvider(string libraryPath)
     {
         var assembly = TryLoadAdapterAssembly()
@@ -132,6 +146,15 @@ internal static class RiscvAdapterTestSupport
         };
 
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string GetPlatformFileName()
+    {
+        if (OperatingSystem.IsWindows())
+            return "neo_riscv_host.dll";
+        if (OperatingSystem.IsMacOS())
+            return "libneo_riscv_host.dylib";
+        return "libneo_riscv_host.so";
     }
 
     private static string? ResolveLibraryPath(Assembly assembly)
