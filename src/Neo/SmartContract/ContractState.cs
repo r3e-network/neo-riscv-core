@@ -116,11 +116,11 @@ namespace Neo.SmartContract
             };
         }
 
-        public StackItem ToStackItem(IReferenceCounter? referenceCounter)
+        public StackItem ToStackItem()
         {
             // Do NOT include Type in serialization — it must match standard Neo consensus.
             // ContractType is resolved at runtime from manifest/binary signature.
-            return new Array(referenceCounter, [Id, (int)UpdateCounter, Hash.ToArray(), Nef.ToArray(), Manifest.ToStackItem(referenceCounter)]);
+            return new Array([Id, (int)UpdateCounter, Hash.ToArray(), Nef.ToArray(), Manifest.ToStackItem()]);
         }
     }
 }

@@ -39,6 +39,7 @@ namespace Neo.SmartContract
     {
         protected static readonly JumpTable DefaultJumpTable = ComposeDefaultJumpTable();
         protected static readonly JumpTable NotEchidnaJumpTable = ComposeNotEchidnaJumpTable();
+        protected static readonly JumpTable NotGorgonJumpTable = ComposeNotGorgonJumpTable();
 
         /// <summary>
         /// The maximum cost that can be spent when a contract is executed in test mode.
@@ -154,7 +155,16 @@ namespace Neo.SmartContract
         /// GAS spent to execute.
         /// In the unit of datoshi, 1 datoshi = 1e-8 GAS, 1 GAS = 1e8 datoshi
         /// </summary>
-        public long FeeConsumed => (long)_feeConsumed.DivideCeiling(FeeFactor);
+        public long FeeConsumed
+        {
+            get
+            {
+                var consumed = _feeConsumed.DivideCeiling(FeeFactor);
+                if (consumed > long.MaxValue)
+                    return (long)(_feeAmount / FeeFactor);
+                return (long)consumed;
+            }
+        }
 
         /// <summary>
         /// Exec Fee Factor. In the unit of picoGAS, 1 picoGAS = 1e-12 GAS
@@ -165,7 +175,16 @@ namespace Neo.SmartContract
         /// The remaining GAS that can be spent in order to complete the execution.
         /// In the unit of datoshi, 1 datoshi = 1e-8 GAS, 1 GAS = 1e8 datoshi
         /// </summary>
-        public long GasLeft => (long)((_feeAmount - _feeConsumed) / FeeFactor);
+        public long GasLeft
+        {
+            get
+            {
+                if (_feeConsumed >= _feeAmount)
+                    return 0;
+                var left = (_feeAmount - _feeConsumed) / FeeFactor;
+                return left > long.MaxValue ? long.MaxValue : (long)left;
+            }
+        }
 
         /// <summary>
         /// The exception that caused the execution to terminate abnormally. This field could be <see langword="null"/> if no exception is thrown.
@@ -285,9 +304,201 @@ namespace Neo.SmartContract
 
         public static JumpTable ComposeNotEchidnaJumpTable()
         {
-            var jumpTable = ComposeDefaultJumpTable();
-            jumpTable[OpCode.SUBSTR] = VulnerableSubStr;
-            return jumpTable;
+            var table = ComposeNotGorgonJumpTable();
+
+            table[OpCode.SUBSTR] = VulnerableSubStr;
+
+            return table;
+        }
+
+        public static JumpTable ComposeNotGorgonJumpTable()
+        {
+            var table = ComposeDefaultJumpTable();
+
+            // Before https://github.com/neo-project/neo-vm/pull/543
+            table[OpCode.HASKEY] = HasKey_Before543;
+            table[OpCode.PICKITEM] = PickItem_Before543;
+            table[OpCode.SETITEM] = SetItem_Before543;
+            table[OpCode.REMOVE] = Remove_Before543;
+
+            // Before https://github.com/neo-project/neo-vm/pull/567.
+            table[OpCode.SHR] = VulnerableSHR;
+            table[OpCode.SHL] = VulnerableSHL;
+
+            return table;
+        }
+
+        private static void Remove_Before543(ExecutionEngine engine, Instruction instruction)
+        {
+            var key = engine.Pop<PrimitiveType>();
+            var x = engine.Pop();
+            switch (x)
+            {
+                case VMArray array:
+                    var index = (int)key.GetInteger();
+                    if (index < 0 || index >= array.Count)
+                        throw new InvalidOperationException($"The index of {nameof(VMArray)} is out of range, {index}/[0, {array.Count}).");
+                    var i = (int)index;
+                    var item = array[i];
+                    array.RemoveAt(index);
+
+                    if (array.IsStackReferenced)
+                        engine.ReferenceCounter.RemoveStackReference(item);
+                    break;
+                case Map map:
+                    var old = map.Remove(key);
+                    if (old is not null && map.IsStackReferenced)
+                    {
+                        engine.ReferenceCounter.RemoveStackReference(key);
+                        engine.ReferenceCounter.RemoveStackReference(old);
+                    }
+                    break;
+                default:
+                    throw new InvalidOperationException($"Invalid type for {instruction.OpCode}: {x.Type}");
+            }
+        }
+
+        private static void SetItem_Before543(ExecutionEngine engine, Instruction instruction)
+        {
+            var value = engine.Pop();
+            if (value is Struct s) value = s.Clone(engine.Limits);
+            var key = engine.Pop<PrimitiveType>();
+            var x = engine.Pop();
+            switch (x)
+            {
+                case VMArray array:
+                    {
+                        var index = (int)key.GetInteger();
+                        if (index < 0 || index >= array.Count)
+                            throw new CatchableException($"The index of {nameof(VMArray)} is out of range, {index}/[0, {array.Count}).");
+                        if (array.IsStackReferenced)
+                            engine.ReferenceCounter.RemoveStackReference(array[index]);
+                        array[index] = value;
+                        if (array.IsStackReferenced)
+                            engine.ReferenceCounter.AddStackReference(value);
+                        break;
+                    }
+                case Map map:
+                    {
+                        if (map.IsStackReferenced)
+                        {
+                            if (!map.TryGetValue(key, out var value1))
+                            {
+                                engine.ReferenceCounter.AddStackReference(key);
+                            }
+                            else
+                            {
+                                engine.ReferenceCounter.RemoveStackReference(value1);
+                            }
+                            engine.ReferenceCounter.AddStackReference(value);
+                        }
+                        map[key] = value;
+                        break;
+                    }
+                case VM.Types.Buffer buffer:
+                    {
+                        var index = (int)key.GetInteger();
+                        if (index < 0 || index >= buffer.Size)
+                            throw new CatchableException($"The index of {nameof(Buffer)} is out of range, {index}/[0, {buffer.Size}).");
+                        if (value is not PrimitiveType p)
+                            throw new InvalidOperationException($"Only primitive type values can be set in {nameof(Buffer)} in {instruction.OpCode}.");
+                        var b = (int)p.GetInteger();
+                        if (b < sbyte.MinValue || b > byte.MaxValue)
+                            throw new InvalidOperationException($"Overflow in {instruction.OpCode}, {b} is not a byte type.");
+                        buffer.InnerBuffer.Span[index] = (byte)b;
+                        break;
+                    }
+                default:
+                    throw new InvalidOperationException($"Invalid type for {instruction.OpCode}: {x.Type}");
+            }
+        }
+
+        private static void PickItem_Before543(ExecutionEngine engine, Instruction instruction)
+        {
+            var key = engine.Pop<PrimitiveType>();
+            var x = engine.Pop();
+            switch (x)
+            {
+                case VMArray array:
+                    {
+                        var index = (int)key.GetInteger();
+                        if (index < 0 || index >= array.Count)
+                            throw new CatchableException($"The index of {nameof(VMArray)} is out of range, {index}/[0, {array.Count}).");
+                        engine.Push(array[index]);
+                        break;
+                    }
+                case Map map:
+                    {
+                        if (!map.TryGetValue(key, out var value))
+                            throw new CatchableException($"Key {key} not found in {nameof(Map)}.");
+                        engine.Push(value);
+                        break;
+                    }
+                case PrimitiveType primitive:
+                    {
+                        var byteArray = primitive.GetSpan();
+                        var index = (int)key.GetInteger();
+                        if (index < 0 || index >= byteArray.Length)
+                            throw new CatchableException($"The index of {nameof(PrimitiveType)} is out of range, {index}/[0, {byteArray.Length}).");
+                        engine.Push((BigInteger)byteArray[index]);
+                        break;
+                    }
+                case Buffer buffer:
+                    {
+                        var index = (int)key.GetInteger();
+                        if (index < 0 || index >= buffer.Size)
+                            throw new CatchableException($"The index of {nameof(Buffer)} is out of range, {index}/[0, {buffer.Size}).");
+                        engine.Push((BigInteger)buffer.InnerBuffer.Span[index]);
+                        break;
+                    }
+                default:
+                    throw new InvalidOperationException($"Invalid type for {instruction.OpCode}: {x.Type}");
+            }
+        }
+
+        private static void HasKey_Before543(ExecutionEngine engine, Instruction instruction)
+        {
+            var key = engine.Pop<PrimitiveType>();
+            var x = engine.Pop();
+            // Check the type of the top item and perform the corresponding action.
+            switch (x)
+            {
+                // For arrays, check if the index is within bounds and push the result onto the stack.
+                case VMArray array:
+                    {
+                        var index = (int)key.GetInteger();
+                        if (index < 0)
+                            throw new InvalidOperationException($"The negative index {index} is invalid for OpCode {instruction.OpCode}.");
+                        engine.Push(index < array.Count);
+                        break;
+                    }
+                // For maps, check if the key exists and push the result onto the stack.
+                case Map map:
+                    {
+                        engine.Push(map.ContainsKey(key));
+                        break;
+                    }
+                // For buffers, check if the index is within bounds and push the result onto the stack.
+                case VM.Types.Buffer buffer:
+                    {
+                        var index = (int)key.GetInteger();
+                        if (index < 0)
+                            throw new InvalidOperationException($"The negative index {index} is invalid for OpCode {instruction.OpCode}.");
+                        engine.Push(index < buffer.Size);
+                        break;
+                    }
+                // For byte strings, check if the index is within bounds and push the result onto the stack.
+                case ByteString array:
+                    {
+                        var index = (int)key.GetInteger();
+                        if (index < 0)
+                            throw new InvalidOperationException($"The negative index {index} is invalid for OpCode {instruction.OpCode}.");
+                        engine.Push(index < array.Size);
+                        break;
+                    }
+                default:
+                    throw new InvalidOperationException($"Invalid type for {instruction.OpCode}: {x.Type}");
+            }
         }
 
         protected static void OnCallT(ExecutionEngine engine, Instruction instruction)
@@ -440,6 +651,7 @@ namespace Neo.SmartContract
 
         internal ContractTask CallFromNativeContractAsync(UInt160 callingScriptHash, UInt160 hash, string method, params StackItem[] args)
         {
+            Diagnostic?.CallFromNative(hash, method, args);
             if (NativeContract.GetContract(hash) is NativeContract nativeContract)
                 return InvokeNativeContractFromNative(callingScriptHash, nativeContract, method, args);
 
@@ -453,6 +665,7 @@ namespace Neo.SmartContract
 
         internal ContractTask<T> CallFromNativeContractAsync<T>(UInt160 callingScriptHash, UInt160 hash, string method, params StackItem[] args)
         {
+            Diagnostic?.CallFromNative(hash, method, args);
             if (NativeContract.GetContract(hash) is NativeContract nativeContract)
                 return InvokeNativeContractFromNative<T>(callingScriptHash, nativeContract, method, args);
 
@@ -657,7 +870,22 @@ namespace Neo.SmartContract
             var index = persistingBlock?.Index ?? ResolveCurrentIndex(snapshot);
             settings ??= ProtocolSettings.Default;
             // Adjust jump table according persistingBlock
-            var jumpTable = settings.IsHardforkEnabled(Hardfork.HF_Echidna, index) ? DefaultJumpTable : NotEchidnaJumpTable;
+            JumpTable jumpTable;
+            if (settings.IsHardforkEnabled(Hardfork.HF_Gorgon, index))
+            {
+                jumpTable = DefaultJumpTable;
+            }
+            else
+            {
+                if (!settings.IsHardforkEnabled(Hardfork.HF_Echidna, index))
+                {
+                    jumpTable = NotEchidnaJumpTable;
+                }
+                else
+                {
+                    jumpTable = NotGorgonJumpTable;
+                }
+            }
             var provider = Provider
                 ?? throw new InvalidOperationException(
                     "ApplicationEngine.Provider is not configured. Host-side NeoVM fallback is disabled; " +
@@ -705,6 +933,42 @@ namespace Neo.SmartContract
             Buffer result = new(count, false);
             x.Slice(index, count).CopyTo(result.InnerBuffer.Span);
             engine.Push(result);
+        }
+
+        /// <summary>
+        /// Computes the left shift of an integer. Vulnerable implementation of
+        /// <see cref="OpCode.SHL"/> since it doesn't pop operand from stack in
+        /// case of zero shift.
+        /// </summary>
+        /// <param name="engine">The execution engine.</param>
+        /// <param name="instruction">The instruction being executed.</param>
+        /// <remarks>Pop 2, Push 1</remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void VulnerableSHL(ExecutionEngine engine, Instruction instruction)
+        {
+            var shift = (int)engine.Pop().GetInteger();
+            engine.Limits.AssertShift(shift);
+            if (shift == 0) return;
+            var x = engine.Pop().GetInteger();
+            engine.Push(x << shift);
+        }
+
+        /// <summary>
+        /// Computes the right shift of an integer. Vulnerable implementation of
+        /// <see cref="OpCode.SHR"/> since it doesn't pop operand from stack in
+        /// case of zero shift.
+        /// </summary>
+        /// <param name="engine">The execution engine.</param>
+        /// <param name="instruction">The instruction being executed.</param>
+        /// <remarks>Pop 2, Push 1</remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void VulnerableSHR(ExecutionEngine engine, Instruction instruction)
+        {
+            var shift = (int)engine.Pop().GetInteger();
+            engine.Limits.AssertShift(shift);
+            if (shift == 0) return;
+            var x = engine.Pop().GetInteger();
+            engine.Push(x >> shift);
         }
 
         public override void LoadContext(ExecutionContext context)
@@ -831,11 +1095,11 @@ namespace Neo.SmartContract
                 string s => s,
                 BigInteger i => i,
                 JObject o => o.ToByteArray(false),
-                IInteroperable interoperable => interoperable.ToStackItem(ReferenceCounter),
+                IInteroperable interoperable => interoperable.ToStackItem(),
                 ISerializable i => i.ToArray(),
                 StackItem item => item,
-                (object a, object b) => new Struct(ReferenceCounter) { Convert(a), Convert(b) },
-                Array array => new VMArray(ReferenceCounter, array.OfType<object>().Select(p => Convert(p))),
+                (object a, object b) => new Struct() { Convert(a), Convert(b) },
+                Array array => new VMArray(array.OfType<object>().Select(p => Convert(p))),
                 _ => StackItem.FromInterface(value)
             };
         }

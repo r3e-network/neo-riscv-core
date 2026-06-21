@@ -39,9 +39,9 @@ namespace Neo.Wallets
     /// <summary>
     /// The base class of wallets.
     /// </summary>
-    public abstract partial class Wallet : ISigner
+    public abstract class Wallet : ISigner
     {
-        private static readonly List<IWalletFactory> factories = new() { NEP6WalletFactory.Instance };
+        private static readonly List<IWalletFactory> s_factories = [NEP6WalletFactory.Instance];
 
         /// <summary>
         /// The <see cref="Neo.ProtocolSettings"/> to be used by the wallet.
@@ -51,7 +51,7 @@ namespace Neo.Wallets
         /// <summary>
         /// The name of the wallet.
         /// </summary>
-        public abstract string Name { get; }
+        public abstract string Name { get; set; }
 
         /// <summary>
         /// The path of the wallet.
@@ -62,6 +62,11 @@ namespace Neo.Wallets
         /// The version of the wallet.
         /// </summary>
         public abstract Version Version { get; }
+
+        /// <summary>
+        /// Indicates whether the wallet is unlocked.
+        /// </summary>
+        public abstract bool IsUnlocked { get; }
 
         /// <summary>
         /// Changes the password of the wallet.
@@ -770,15 +775,15 @@ namespace Neo.Wallets
             if (account is null)
                 throw new SignException("No such account found");
 
-            var privateKey = account.GetKey()?.PrivateKey;
-            if (privateKey is null)
+            var key = account.GetKey();
+            if (key?.PrivateKey is null)
                 throw new SignException("No private key found for the given public key");
 
             if (account.Lock)
                 throw new SignException("Account is locked");
 
             var signData = block.GetSignData(network);
-            return Crypto.Sign(signData, privateKey);
+            return Crypto.Sign(signData, key);
         }
 
         /// <summary>
@@ -811,8 +816,15 @@ namespace Neo.Wallets
         {
             return GetFactory(path)?.CreateWallet(name, path, password, settings);
         }
-
-        public static Wallet? Open(string path, string password, ProtocolSettings settings)
+        /// <summary>
+        /// Opens an existing wallet from the specified file path using the provided password and protocol settings.
+        /// </summary>
+        /// <param name="path">The file system path to the wallet to open. This must refer to an existing wallet file.</param>
+        /// <param name="password">The password used to decrypt the wallet. The wallet is opened in read-only mode if <see langword="null"/>.</param>
+        /// <param name="settings">The protocol settings to use when accessing the wallet.</param>
+        /// <returns>A <see cref="Wallet"/> instance representing the opened wallet, or <see langword="null"/> if the wallet could
+        /// not be opened.</returns>
+        public static Wallet? Open(string path, string? password, ProtocolSettings settings)
         {
             return GetFactory(path)?.OpenWallet(path, password, settings);
         }
@@ -847,12 +859,12 @@ namespace Neo.Wallets
 
         private static IWalletFactory? GetFactory(string path)
         {
-            return factories.FirstOrDefault(p => p.Handle(path));
+            return s_factories.FirstOrDefault(p => p.Handle(path));
         }
 
         public static void RegisterFactory(IWalletFactory factory)
         {
-            factories.Add(factory);
+            s_factories.Add(factory);
         }
     }
 }

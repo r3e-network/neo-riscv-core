@@ -6,11 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Akka.TestKit" Version="1.5.55" />
-    <PackageReference Include="Akka.TestKit.MSTest" Version="1.5.0" />
+    <PackageReference Include="Akka.TestKit" Version="1.5.68" />
+    <PackageReference Include="Akka.TestKit.MSTest" Version="1.5.67" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="MSTest" Version="$(MSTestVersion)" />
-    <PackageReference Include="Namotion.Reflection" Version="3.4.3" />
+    <PackageReference Include="Namotion.Reflection" Version="3.5.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,7 +29,18 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Neo.Extensions\Neo.Extensions.csproj" />
     <ProjectReference Include="..\..\src\Neo\Neo.csproj" />
-    <ProjectReference Include="..\..\..\neo-riscv-vm\dotnet\Neo.Riscv.Adapter\Neo.Riscv.Adapter.csproj" ReferenceOutputAssembly="false" />
+    <!-- Source-level link to the canonical adapter in the neo-riscv-vm sibling repo.
+         Only enabled when the *physical* sibling layout is intact: the VM's own
+         Neo.Riscv.Adapter.csproj reaches core via "..\..\..\neo-riscv-core", which only
+         resolves when core and vm share the same real parent directory. A symlink that
+         points the VM at a different filesystem tree (e.g. an external drive) breaks that
+         reverse reference, so we require it to exist too. Otherwise we fall back to the
+         committed plugin binaries under Plugins/Neo.Riscv.Adapter, which is the
+         runtime source used by RiscvApplicationEngineTestProvider. -->
+    <ProjectReference Include="..\..\..\neo-riscv-vm\dotnet\Neo.Riscv.Adapter\Neo.Riscv.Adapter.csproj"
+                      ReferenceOutputAssembly="false"
+                      Condition="Exists('..\..\..\neo-riscv-vm\dotnet\Neo.Riscv.Adapter\Neo.Riscv.Adapter.csproj')
+                                 and Exists('..\..\..\neo-riscv-vm\..\..\..\neo-riscv-core\src\Neo\Neo.csproj')" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -40,14 +51,25 @@
     <RiscvHostLibFileName Condition="'$(RiscvHostLibFileName)' == ''">libneo_riscv_host.so</RiscvHostLibFileName>
     <RiscvHostLibRelease>..\..\..\neo-riscv-vm\target\release\$(RiscvHostLibFileName)</RiscvHostLibRelease>
     <RiscvHostLibDebug>..\..\..\neo-riscv-vm\target\debug\$(RiscvHostLibFileName)</RiscvHostLibDebug>
+    <!-- Committed platform bundle shipped under the test project's Plugins folder.
+         Used as a last-resort source for the native host lib when the VM sibling has
+         not been built locally (mirrors the RiscvTestEnvironment staged-bundle lookup). -->
+    <RiscvHostLibBundled>Plugins\Neo.Riscv.Adapter\$(RiscvHostLibFileName)</RiscvHostLibBundled>
+    <!-- Committed managed adapter bundle, used when the VM sibling's adapter has not been
+         built from source (same fallback rationale as RiscvHostLibBundled above). -->
+    <RiscvAdapterDllBundled>Plugins\Neo.Riscv.Adapter\Neo.Riscv.Adapter.dll</RiscvAdapterDllBundled>
+    <RiscvAdapterDepsJsonBundled>Plugins\Neo.Riscv.Adapter\Neo.Riscv.Adapter.deps.json</RiscvAdapterDepsJsonBundled>
     <RiscvAdapterPluginDir>$(TargetDir)Plugins/Neo.Riscv.Adapter</RiscvAdapterPluginDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(RiscvAdapterDll)" Link="Plugins/Neo.Riscv.Adapter/Neo.Riscv.Adapter.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(RiscvAdapterDepsJson)" Link="Plugins/Neo.Riscv.Adapter/Neo.Riscv.Adapter.deps.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RiscvAdapterDll)" Link="Plugins/Neo.Riscv.Adapter/Neo.Riscv.Adapter.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(RiscvAdapterDll)')" />
+    <None Include="$(RiscvAdapterDepsJson)" Link="Plugins/Neo.Riscv.Adapter/Neo.Riscv.Adapter.deps.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(RiscvAdapterDepsJson)')" />
+    <None Include="$(RiscvAdapterDllBundled)" Link="Plugins/Neo.Riscv.Adapter/Neo.Riscv.Adapter.dll" CopyToOutputDirectory="PreserveNewest" Condition="!Exists('$(RiscvAdapterDll)') and Exists('$(RiscvAdapterDllBundled)')" />
+    <None Include="$(RiscvAdapterDepsJsonBundled)" Link="Plugins/Neo.Riscv.Adapter/Neo.Riscv.Adapter.deps.json" CopyToOutputDirectory="PreserveNewest" Condition="!Exists('$(RiscvAdapterDepsJson)') and Exists('$(RiscvAdapterDepsJsonBundled)')" />
     <None Include="$(RiscvHostLibRelease)" Link="Plugins/Neo.Riscv.Adapter/$(RiscvHostLibFileName)" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(RiscvHostLibRelease)')" />
     <None Include="$(RiscvHostLibDebug)" Link="Plugins/Neo.Riscv.Adapter/$(RiscvHostLibFileName)" CopyToOutputDirectory="PreserveNewest" Condition="!Exists('$(RiscvHostLibRelease)') and Exists('$(RiscvHostLibDebug)')" />
+    <None Include="$(RiscvHostLibBundled)" Link="Plugins/Neo.Riscv.Adapter/$(RiscvHostLibFileName)" CopyToOutputDirectory="PreserveNewest" Condition="!Exists('$(RiscvHostLibRelease)') and !Exists('$(RiscvHostLibDebug)') and Exists('$(RiscvHostLibBundled)')" />
   </ItemGroup>
 
 </Project>

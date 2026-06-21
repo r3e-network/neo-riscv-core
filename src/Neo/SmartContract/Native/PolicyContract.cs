@@ -156,7 +156,7 @@ namespace Neo.SmartContract.Native
                     throw new InvalidOperationException("Policy was not initialized");
                 item.Set((uint)(BigInteger)item * ApplicationEngine.FeeFactor);
 
-                // Add timestamp of the current block to blocked acconuts.
+                // Add timestamp of the current block to blocked accounts.
                 var time = engine.GetTime();
                 foreach (var (key, _) in engine.SnapshotCache.Find(CreateStorageKey(Prefix_BlockedAccount), SeekDirection.Forward))
                 {
@@ -627,7 +627,7 @@ namespace Neo.SmartContract.Native
             return new StorageIterator(enumerator, 1, options);
         }
 
-        [ContractMethod(Hardfork.HF_Faun, CpuFee = 1 << 15, RequiredCallFlags = CallFlags.States | CallFlags.AllowNotify)]
+        [ContractMethod(Hardfork.HF_Faun, CpuFee = 1 << 15, RequiredCallFlags = CallFlags.All)]
         internal async ContractTask<bool> RecoverFund(ApplicationEngine engine, UInt160 account, UInt160 token)
         {
             var committeeMultiSigAddr = AssertAlmostFullCommittee(engine);

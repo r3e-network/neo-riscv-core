@@ -10,3 +10,12 @@ dotnet_diagnostic.MSTEST0032.severity = suggestion
 
 # MSTEST0037: Use proper 'Assert' methods
 dotnet_diagnostic.MSTEST0037.severity = suggestion
+
+# MSTEST0025: Use 'Assert.Fail' instead of an always-failing assert
+dotnet_diagnostic.MSTEST0025.severity = suggestion
+
+# MSTEST0051: Assert.Throws should contain only a single statement/expression
+dotnet_diagnostic.MSTEST0051.severity = suggestion
+
+# MSTEST0058: Do not use asserts in catch blocks
+dotnet_diagnostic.MSTEST0058.severity = suggestion
