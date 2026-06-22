@@ -47,8 +47,27 @@ namespace Neo.SmartContract
         /// </summary>
         public const long TestModeGas = 20_00000000;
 
+        /// <summary>
+        /// Handler for the <see cref="InstanceHandler"/> event, invoked each
+        /// time an <see cref="ApplicationEngine"/> instance is created.
+        /// </summary>
+        /// <param name="engine">The engine instance that was just created.</param>
         public delegate void OnInstanceHandlerEvent(ApplicationEngine engine);
+
+        /// <summary>
+        /// Handler for the <see cref="Log"/> event, invoked when a contract
+        /// calls <c>System.Runtime.Log</c>.
+        /// </summary>
+        /// <param name="engine">The engine executing the logging contract.</param>
+        /// <param name="args">The log event details (script hash + message).</param>
         public delegate void OnLogEvent(ApplicationEngine engine, LogEventArgs args);
+
+        /// <summary>
+        /// Handler for the <see cref="Notify"/> event, invoked when a contract
+        /// calls <c>System.Runtime.Notify</c>.
+        /// </summary>
+        /// <param name="engine">The engine executing the notifying contract.</param>
+        /// <param name="args">The notification event details (script hash + name + state).</param>
         public delegate void OnNotifyEvent(ApplicationEngine engine, NotifyEventArgs args);
 
         /// <summary>
@@ -1059,15 +1078,13 @@ namespace Neo.SmartContract
             return context;
         }
 
-        private static bool IsRiscvBinaryScript(Script script)
-        {
-            var bytes = ((ReadOnlyMemory<byte>)script).Span;
-            return bytes.Length >= 4
-                && bytes[0] == 0x50
-                && bytes[1] == 0x56
-                && bytes[2] == 0x4D
-                && bytes[3] == 0x00;
-        }
+        /// <summary>
+        /// Detect whether a script payload is a PolkaVM binary.
+        /// </summary>
+        /// <remarks>Delegates to the single canonical <see cref="ContractVmTypeResolver.IsRiscVBinary"/>
+        /// to avoid duplicating the <c>"PVM\0"</c> magic-byte comparison across the codebase.</remarks>
+        private static bool IsRiscvBinaryScript(Script script) =>
+            ContractVmTypeResolver.IsRiscVBinary(script);
 
         /// <summary>
         /// Converts an <see cref="object"/> to a <see cref="StackItem"/> that used in the virtual machine.

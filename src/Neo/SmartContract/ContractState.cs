@@ -66,10 +66,14 @@ namespace Neo.SmartContract
             var from = (ContractState)replica;
             Id = from.Id;
             UpdateCounter = from.UpdateCounter;
-            Type = from.Type;
             Hash = from.Hash;
             Nef = from.Nef;
             Manifest = from.Manifest;
+            // Re-resolve ContractType from the replica's manifest/script rather than
+            // copying it verbatim, so a cache clone is never dispatched through the
+            // wrong engine (defense-in-depth alongside RiscvExecutionDispatcher's
+            // type/payload cross-check). This mirrors FromStackItem's resolution.
+            Type = ContractVmTypeResolver.Resolve(from.Manifest, from.Nef.Script);
         }
 
         void IInteroperable.FromStackItem(StackItem stackItem)
